@@ -1,6 +1,21 @@
 import streamlit as st
 import pandas as pd
 
+# --- 🔐 PASSWORD PROTECTION ---
+PASSWORD = "NIHIL IS GREAT"  # <-- CHANGE THIS to whatever password you want
+
+st.set_page_config(page_title="Private Company Listing App", layout="wide")
+st.markdown("<h2 style='text-align: center;'>🔐 Protected App</h2>", unsafe_allow_html=True)
+
+password_input = st.text_input("Enter Password", type="password")
+
+if password_input != PASSWORD:
+    st.warning("Please enter the correct password to continue.")
+    st.stop()  # ⛔️ Stops the app until correct password is entered
+    
+import streamlit as st
+import pandas as pd
+
 # --- Page Config ---
 st.set_page_config(page_title="Company Listing Search", page_icon="☁️", layout="wide")
 
@@ -124,3 +139,4 @@ st.markdown(
     "<h3 style='text-align: center; color: #FFD700;'>💡 Ask Nihil!</h3>",
     unsafe_allow_html=True,
 )
+
