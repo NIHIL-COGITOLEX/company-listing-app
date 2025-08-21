@@ -2,29 +2,48 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
+import time
 
 # --- Password Protection ---
 PASSWORD = "NIHIL IS GREAT"  # 🔑 Change this if needed
 st.set_page_config(page_title="Private Company Listing App", page_icon="☁️", layout="wide")
 
+SESSION_DURATION = 20  # ⏳ Session expires after 20 seconds
+
 def check_password():
-    """Password protection with session state"""
+    """Password protection with session timeout"""
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
+    if "login_time" not in st.session_state:
+        st.session_state.login_time = None
 
-    if not st.session_state.password_correct:
-        st.markdown("<h2 style='text-align: center;'>🔐 Protected App</h2>", unsafe_allow_html=True)
-        password_input = st.text_input("Enter Password", type="password")
-
-        if st.button("Unlock"):
-            if password_input == PASSWORD:
-                st.session_state.password_correct = True
-                st.success("✅ Access Granted")
-            else:
-                st.error("❌ Incorrect Password")
-                st.stop()
-        else:
+    # If already logged in, check session time
+    if st.session_state.password_correct:
+        elapsed = time.time() - st.session_state.login_time
+        if elapsed > SESSION_DURATION:
+            st.session_state.password_correct = False
+            st.warning("⏳ Session expired. Please log in again.")
             st.stop()
+        else:
+            remaining = int(SESSION_DURATION - elapsed)
+            st.sidebar.info(f"⏳ Session ends in {remaining} sec")
+        return True
+
+    # If not logged in, ask for password
+    st.markdown("<h2 style='text-align: center;'>🔐 Protected App</h2>", unsafe_allow_html=True)
+    password_input = st.text_input("Enter Password", type="password")
+
+    if st.button("Unlock"):
+        if password_input == PASSWORD:
+            st.session_state.password_correct = True
+            st.session_state.login_time = time.time()
+            st.success("✅ Access Granted")
+        else:
+            st.error("❌ Incorrect Password")
+            st.stop()
+    else:
+        st.stop()
+
     return True
 
 
@@ -154,7 +173,7 @@ if check_password():
             This app is a **private company listing search tool**.  
 
             🔑 Features:  
-            - Secure login with password protection  
+            - Secure login with password protection (**⏳ expires after 20 seconds**)  
             - Search by **Company, Bank, or Category**  
             - 📊 Dashboard with interactive summary charts  
             - ⬇️ Download results as **CSV/Excel**  
