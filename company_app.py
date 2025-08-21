@@ -49,7 +49,7 @@ st.markdown(
 # --- Load Data ---
 @st.cache_data
 def load_data():
-    df = pd.read_excel("data/company_listings.xlsx")
+    df = pd.read_excel("company_listings.xlsx.xlsx")
     df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
     return df
 
@@ -139,3 +139,4 @@ elif menu == "ℹ️ About App":
     )
 
     st.markdown("<h3 style='text-align: center; color: #FFD700;'>💡 Ask Nihil!</h3>", unsafe_allow_html=True)
+
