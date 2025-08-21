@@ -70,7 +70,7 @@ if check_password():
 
     # Sidebar Navigation
     st.sidebar.title("📂 Navigation")
-    menu = st.sidebar.radio("Go to", ["🔎 Search Companies", "📊 Summary Dashboard", "📥 Upload Data", "ℹ️ About App"])
+    menu = st.sidebar.radio("Go to", ["🔎 Search Companies", "📊 Summary Dashboard", "ℹ️ About App"])
 
     # Load Data
     data = load_data()
@@ -79,39 +79,44 @@ if check_password():
     if menu == "🔎 Search Companies":
         st.title("☁️🏦 Company Listing Search App")
 
-        search_query = st.text_input("", placeholder="Search by Company, Bank, or Category...")
+        search_query = st.text_input("Enter search term")
         bank_filter = st.selectbox("🏦 Filter by Bank (optional)", ["All"] + sorted(data["BANK_NAME"].dropna().unique().tolist()))
         category_filter = st.selectbox("📂 Filter by Category (optional)", ["All"] + sorted(data["COMPANY_CATEGORY"].dropna().unique().tolist()))
 
-        results = data.copy()
+        if st.button("🔎 Search"):
+            results = data.copy()
 
-        # Apply Filters
-        if search_query:
-            mask = (
-                results["COMPANY_NAME"].str.contains(search_query, case=False, na=False)
-                | results["BANK_NAME"].str.contains(search_query, case=False, na=False)
-                | results["COMPANY_CATEGORY"].str.contains(search_query, case=False, na=False)
-            )
-            results = results[mask]
+            if search_query:
+                # Lowercase matching for speed
+                query = search_query.lower()
+                mask = (
+                    data["COMPANY_NAME"].str.lower().str.contains(query, regex=False, na=False)
+                    | data["BANK_NAME"].str.lower().str.contains(query, regex=False, na=False)
+                    | data["COMPANY_CATEGORY"].str.lower().str.contains(query, regex=False, na=False)
+                )
+                results = results[mask]
 
-        if bank_filter != "All":
-            results = results[results["BANK_NAME"] == bank_filter]
+            if bank_filter != "All":
+                results = results[results["BANK_NAME"] == bank_filter]
 
-        if category_filter != "All":
-            results = results[results["COMPANY_CATEGORY"] == category_filter]
+            if category_filter != "All":
+                results = results[results["COMPANY_CATEGORY"] == category_filter]
 
-        if not results.empty:
-            st.success(f"✅ Found {len(results)} matching result(s)")
-            st.dataframe(results)
+            total = len(results)
+            st.success(f"✅ Found {total} matching result(s)")
 
-            # --- Download Results ---
-            csv = results.to_csv(index=False).encode("utf-8")
-            excel_buffer = io.BytesIO()
-            results.to_excel(excel_buffer, index=False, engine="openpyxl")
-            st.download_button("⬇️ Download CSV", data=csv, file_name="results.csv", mime="text/csv")
-            st.download_button("⬇️ Download Excel", data=excel_buffer, file_name="results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            # Show only first 100 results in UI
+            st.dataframe(results.head(100))
+
+            # Download full results
+            if total > 0:
+                csv = results.to_csv(index=False).encode("utf-8")
+                excel_buffer = io.BytesIO()
+                results.to_excel(excel_buffer, index=False, engine="openpyxl")
+                st.download_button("⬇️ Download Full Results (CSV)", data=csv, file_name="results.csv", mime="text/csv")
+                st.download_button("⬇️ Download Full Results (Excel)", data=excel_buffer, file_name="results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
-            st.warning("⚠️ No results found.")
+            st.info("ℹ️ Enter a search term and click **Search** to begin.")
 
     # --- DASHBOARD PAGE ---
     elif menu == "📊 Summary Dashboard":
@@ -141,16 +146,6 @@ if check_password():
         st.subheader("📈 Data Snapshot")
         st.dataframe(data.head(20))
 
-    # --- UPLOAD PAGE ---
-    elif menu == "📥 Upload Data":
-        st.title("📥 Upload a New Dataset")
-        uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
-        if uploaded_file:
-            new_data = pd.read_excel(uploaded_file)
-            st.session_state["uploaded_data"] = new_data
-            st.success("✅ File uploaded successfully! Reload to use new dataset.")
-            st.dataframe(new_data.head())
-
     # --- ABOUT PAGE ---
     elif menu == "ℹ️ About App":
         st.title("ℹ️ About this App")
@@ -163,7 +158,6 @@ if check_password():
             - Search by **Company, Bank, or Category**  
             - 📊 Dashboard with interactive summary charts  
             - ⬇️ Download results as **CSV/Excel**  
-            - 📥 Upload your own dataset  
             - Beautiful **dark neon UI styling**  
 
             💡 Built with **Streamlit + Pandas + Matplotlib**  
