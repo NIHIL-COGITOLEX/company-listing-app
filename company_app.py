@@ -105,8 +105,8 @@ if check_password():
             total = len(results)
             st.success(f"✅ Found {total} matching result(s)")
 
-            # Show only first 100 results in UI
-            st.dataframe(results.head(100))
+            # Show only first 500 results in UI
+            st.dataframe(results.head(500))
 
             # Download full results
             if total > 0:
