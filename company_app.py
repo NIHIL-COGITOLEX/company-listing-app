@@ -5,7 +5,8 @@ import io
 
 # --- Password Protection ---
 PASSWORD = "NIHIL IS GREAT"  # 🔑 Change this if needed
-st.set_page_config(page_title="Private Company Listing App", page_icon="☁", layout="wide")
+st.set_page_config(page_title="Private Listing App", page_icon="☁", layout="wide")
+
 
 def check_password():
     """Password protection with session state"""
@@ -57,10 +58,18 @@ st.markdown(
 )
 
 
-# --- Load Data ---
+# --- Load Company Data ---
 @st.cache_data
-def load_data():
-    df = pd.read_excel("company_listings.xlsx.xlsx")
+def load_company_data():
+    df = pd.read_excel("company_listings.xlsx.xlsx")  # ✅ double extension
+    df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
+    return df
+
+
+# --- Load Pincode Data ---
+@st.cache_data
+def load_pincode_data():
+    df = pd.read_excel("pincode_listings.xlsx.xlsx")  # ✅ also double extension
     df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
     return df
 
@@ -70,29 +79,32 @@ if check_password():
 
     # Sidebar Navigation
     st.sidebar.title("📂 Navigation")
-    menu = st.sidebar.radio("Go to", ["🔎 Search Companies", "📊 Summary Dashboard", "ℹ About App"])
+    menu = st.sidebar.radio(
+        "Go to",
+        ["🔎 Search Companies", "📍 Search Pincodes", "📊 Dashboards", "ℹ About App"]
+    )
 
     # Load Data
-    data = load_data()
+    company_data = load_company_data()
+    pincode_data = load_pincode_data()
 
-    # --- SEARCH PAGE ---
+    # --- COMPANY SEARCH ---
     if menu == "🔎 Search Companies":
-        st.title("☁🏦 Company Listing Search App")
+        st.title("☁🏦 Company Listing Search")
 
         search_query = st.text_input("Enter search term")
-        bank_filter = st.selectbox("🏦 Filter by Bank (optional)", ["All"] + sorted(data["BANK_NAME"].dropna().unique().tolist()))
-        category_filter = st.selectbox("📂 Filter by Category (optional)", ["All"] + sorted(data["COMPANY_CATEGORY"].dropna().unique().tolist()))
+        bank_filter = st.selectbox("🏦 Filter by Bank (optional)", ["All"] + sorted(company_data["BANK_NAME"].dropna().unique().tolist()))
+        category_filter = st.selectbox("📂 Filter by Category (optional)", ["All"] + sorted(company_data["COMPANY_CATEGORY"].dropna().unique().tolist()))
 
-        if st.button("🔎 Search"):
-            results = data.copy()
+        if st.button("🔎 Search Companies"):
+            results = company_data.copy()
 
             if search_query:
-                # Lowercase matching for speed
                 query = search_query.lower()
                 mask = (
-                    data["COMPANY_NAME"].str.lower().str.contains(query, regex=False, na=False)
-                    | data["BANK_NAME"].str.lower().str.contains(query, regex=False, na=False)
-                    | data["COMPANY_CATEGORY"].str.lower().str.contains(query, regex=False, na=False)
+                    results["COMPANY_NAME"].str.lower().str.contains(query, regex=False, na=False)
+                    | results["BANK_NAME"].str.lower().str.contains(query, regex=False, na=False)
+                    | results["COMPANY_CATEGORY"].str.lower().str.contains(query, regex=False, na=False)
                 )
                 results = results[mask]
 
@@ -103,60 +115,92 @@ if check_password():
                 results = results[results["COMPANY_CATEGORY"] == category_filter]
 
             total = len(results)
-            st.success(f"✅ Found {total} matching result(s)")
+            st.success(f"✅ Found {total} company result(s)")
 
-            # Show only first 500 results in UI
             st.dataframe(results.head(500))
 
-            # Download full results
             if total > 0:
                 csv = results.to_csv(index=False).encode("utf-8")
                 excel_buffer = io.BytesIO()
                 results.to_excel(excel_buffer, index=False, engine="openpyxl")
-                st.download_button("⬇ Download Full Results (CSV)", data=csv, file_name="results.csv", mime="text/csv")
-                st.download_button("⬇ Download Full Results (Excel)", data=excel_buffer, file_name="results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        else:
-            st.info("ℹ Enter a search term and click *Search* to begin.")
+                st.download_button("⬇ Download Company Results (CSV)", data=csv, file_name="company_results.csv", mime="text/csv")
+                st.download_button("⬇ Download Company Results (Excel)", data=excel_buffer, file_name="company_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # --- DASHBOARD PAGE ---
-    elif menu == "📊 Summary Dashboard":
-        st.title("📊 Company Data Dashboard")
+    # --- PINCODE SEARCH ---
+    elif menu == "📍 Search Pincodes":
+        st.title("📍 Pincode Listing Search")
 
-        col1, col2 = st.columns(2)
+        search_query = st.text_input("Enter Pincode, Bank, or Location")
+        bank_filter = st.selectbox("🏦 Filter by Bank (optional)", ["All"] + sorted(pincode_data["BANK"].dropna().unique().tolist()))
+        state_filter = st.selectbox("🌍 Filter by State (optional)", ["All"] + sorted(pincode_data["STATE"].dropna().unique().tolist()))
 
-        with col1:
-            st.subheader("🏦 Companies by Bank")
-            bank_counts = data["BANK_NAME"].value_counts()
-            fig, ax = plt.subplots()
-            bank_counts.plot(kind="bar", ax=ax, color="crimson")
-            ax.set_ylabel("Number of Companies")
-            ax.set_title("Companies per Bank")
-            st.pyplot(fig)
+        if st.button("🔎 Search Pincodes"):
+            results = pincode_data.copy()
 
-        with col2:
-            st.subheader("📂 Companies by Category")
-            category_counts = data["COMPANY_CATEGORY"].value_counts()
-            fig, ax = plt.subplots()
-            category_counts.plot(kind="pie", autopct="%1.1f%%", ax=ax, colors=plt.cm.Set3.colors)
-            ax.set_ylabel("")
-            ax.set_title("Company Category Share")
-            st.pyplot(fig)
+            if search_query:
+                query = search_query.lower()
+                mask = (
+                    results["PINCODE"].astype(str).str.contains(query, regex=False, na=False)
+                    | results["BANK"].str.lower().str.contains(query, regex=False, na=False)
+                    | results["LOCATION"].str.lower().str.contains(query, regex=False, na=False)
+                    | results["STATE"].str.lower().str.contains(query, regex=False, na=False)
+                )
+                results = results[mask]
+
+            if bank_filter != "All":
+                results = results[results["BANK"] == bank_filter]
+
+            if state_filter != "All":
+                results = results[results["STATE"] == state_filter]
+
+            total = len(results)
+            st.success(f"✅ Found {total} pincode result(s)")
+
+            st.dataframe(results.head(500))
+
+            if total > 0:
+                csv = results.to_csv(index=False).encode("utf-8")
+                excel_buffer = io.BytesIO()
+                results.to_excel(excel_buffer, index=False, engine="openpyxl")
+                st.download_button("⬇ Download Pincode Results (CSV)", data=csv, file_name="pincode_results.csv", mime="text/csv")
+                st.download_button("⬇ Download Pincode Results (Excel)", data=excel_buffer, file_name="pincode_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    # --- DASHBOARDS ---
+    elif menu == "📊 Dashboards":
+        st.title("📊 Data Dashboards")
+
+        st.subheader("🏦 Companies by Bank")
+        bank_counts = company_data["BANK_NAME"].value_counts()
+        fig, ax = plt.subplots()
+        bank_counts.plot(kind="bar", ax=ax, color="crimson")
+        ax.set_ylabel("Number of Companies")
+        ax.set_title("Companies per Bank")
+        st.pyplot(fig)
+
+        st.subheader("📂 Companies by Category")
+        category_counts = company_data["COMPANY_CATEGORY"].value_counts()
+        fig, ax = plt.subplots()
+        category_counts.plot(kind="pie", autopct="%1.1f%%", ax=ax, colors=plt.cm.Set3.colors)
+        ax.set_ylabel("")
+        ax.set_title("Company Category Share")
+        st.pyplot(fig)
 
         st.markdown("<hr>", unsafe_allow_html=True)
-        st.subheader("📈 Data Snapshot")
-        st.dataframe(data.head(20))
+        st.subheader("📍 Pincode Data Snapshot")
+        st.dataframe(pincode_data.head(20))
 
     # --- ABOUT PAGE ---
     elif menu == "ℹ About App":
         st.title("ℹ About this App")
         st.markdown(
             """
-            This app is a *private company listing search tool*.  
+            This app is a *private listing tool* with:  
 
             🔑 Features:  
             - Secure login with password protection  
-            - Search by *Company, Bank, or Category*  
-            - 📊 Dashboard with interactive summary charts  
+            - Company search by *Name, Bank, Category*  
+            - Pincode search by *Pincode, Bank, Location, State*  
+            - 📊 Dashboards with interactive summary charts  
             - ⬇ Download results as *CSV/Excel*  
             - Beautiful *dark neon UI styling*  
 
