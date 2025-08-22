@@ -72,14 +72,14 @@ st.markdown(
 # ----------------------------
 @st.cache_data
 def load_company_data():
-    df = pd.read_excel("company_listings.xslx.xslx")  # ✅ double extension
+    df = pd.read_excel("company_listings.xlsx.xlsx")  # ✅ match actual file name
     df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
     return df
 
 
 @st.cache_data
 def load_pincode_data():
-    df = pd.read_excel("pincode_listings.xslx")  # ✅ single extension
+    df = pd.read_excel("pincode_listings.xlsx")  # ✅ match actual file name
     df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
     return df
 
@@ -95,6 +95,11 @@ if check_password():
         "Choose Feature",
         ["🏢 Company Listing Checker", "📮 Pincode Listing Checker", "📊 Dashboard", "ℹ About App"]
     )
+
+    # Logout button
+    if st.sidebar.button("🔒 Logout"):
+        st.session_state.password_correct = False
+        st.experimental_rerun()
 
     # ----------------------------
     # --- Company Listing Checker ---
@@ -128,7 +133,9 @@ if check_password():
 
             total = len(results)
             st.success(f"✅ Found {total} matching result(s)")
-            st.dataframe(results.head(500))
+
+            max_rows = st.slider("Max rows to display", 50, 2000, 500)
+            st.dataframe(results.head(max_rows))
 
             if total > 0:
                 csv = results.to_csv(index=False).encode("utf-8")
@@ -171,7 +178,9 @@ if check_password():
 
             total = len(results)
             st.success(f"✅ Found {total} matching result(s)")
-            st.dataframe(results.head(500))
+
+            max_rows = st.slider("Max rows to display", 50, 2000, 500, key="rows2")
+            st.dataframe(results.head(max_rows))
 
             if total > 0:
                 csv = results.to_csv(index=False).encode("utf-8")
@@ -207,6 +216,7 @@ if check_password():
             category_counts = company_data["COMPANY_CATEGORY"].value_counts()
             fig, ax = plt.subplots()
             category_counts.plot(kind="pie", autopct="%1.1f%%", ax=ax, colors=plt.cm.Set3.colors)
+            ax.axis("equal")  # ✅ makes pie chart round
             ax.set_ylabel("")
             ax.set_title("Company Category Share")
             st.pyplot(fig)
