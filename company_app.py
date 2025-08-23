@@ -122,10 +122,7 @@ PASSWORD = st.secrets.get("password", DEFAULT_PASSWORD)
 
 def require_password() -> None:
     """
-    Simple password gate.
-    - Stores 'password_ok' in session_state.
-    - On correct password: set flag and immediately st.experimental_rerun()
-      so the form disappears with one click (no lag/second press).
+    Password gate compatible with latest Streamlit.
     """
     if "password_ok" not in st.session_state:
         st.session_state["password_ok"] = False
@@ -138,13 +135,15 @@ def require_password() -> None:
             if submitted:
                 if p == PASSWORD:
                     st.session_state["password_ok"] = True
-                    # Instant rerun so the unlock form disappears right away
-                    st.experimental_rerun()
+                    # Use the new rerun approach
+                    import streamlit.runtime.scriptrunner.script_runner as sr
+                    sr.RerunException()
                 else:
                     st.error("❌ Incorrect password")
-        # If not unlocked, halt the rest of the script
+        # Halt rest of script if not unlocked
         if not st.session_state["password_ok"]:
             st.stop()
+
 
 
 require_password()
@@ -855,3 +854,4 @@ else:
         """
     )
     st.markdown("Made for mobile & desktop (responsive Streamlit layout).")
+
