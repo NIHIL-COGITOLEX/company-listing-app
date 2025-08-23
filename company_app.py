@@ -49,8 +49,14 @@ h1, h2, h3, h4 { color: #FFD700; text-align: center; font-family: 'Trebuchet MS'
 # ----------------------------
 @st.cache_data
 def load_company_data():
-    # ✅ Double extension but correct XLSX spelling
-    df = pd.read_excel("company_listings.xlsx.xlsx")
+    # Load both parts
+    df1 = pd.read_excel("company_listings_part1.xlsx")
+    df2 = pd.read_excel("company_listings_part2.xlsx")
+    
+    # Merge them
+    df = pd.concat([df1, df2], ignore_index=True)
+
+    # Normalize columns
     df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
     return df
 
@@ -207,3 +213,4 @@ if check_password():
         💡 Built with *Streamlit + Pandas + Matplotlib*
         """)
         st.markdown("<h4 style='text-align: center; color: #FFD700;'>✨ Developed by Nihil ✨</h4>", unsafe_allow_html=True)
+
