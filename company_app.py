@@ -1,12 +1,12 @@
 # company_app_final.py
 """
-Private Listing App - Final (Search button + non-duplicated filters + highlight matches)
+Private Listing App - Final (Search button + non-duplicated filters + dark-green highlight + smoother UX)
 Features:
-- Search button (form-based) for both modules
+- Search button (form-based) for both modules (fixed first-click "old query" bug)
 - Top "quick filters" stay; table-level filters exclude duplicates like BANK/STATE
 - Column filters above the table (selects & sliders)
 - Pagination + selectable page size
-- Match highlighting (HTML) and "Matched In" column explaining why a row appears
+- Match highlighting (HTML, DARK GREEN) and "Matched In" column explaining why a row appears
 - History (last 50) + Pins (save/apply/remove)
 - CSV / Excel download
 - Responsive UI for desktop & mobile
@@ -40,7 +40,8 @@ st.markdown(
     .stButton>button { background: linear-gradient(45deg,#ff0040,#ff8000) !important; color:white !important; font-weight:700 !important; border-radius:8px !important; }
     .table-filter-row { background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,215,0,0.12); padding:10px; border-radius:8px; margin-bottom:10px; }
     .sidebar .stButton>button { width:100% !important; }
-    mark { background: #fffb00; color: #000; padding: 0 2px; border-radius: 3px; }
+    /* CHANGED: match highlight to DARK GREEN instead of yellow */
+    mark { background:#0f7a3a; color:#ffffff; padding:0 2px; border-radius:3px; }
     @media(max-width:600px){
         .stButton>button { padding:8px 10px !important; font-size:14px !important; }
     }
@@ -123,6 +124,8 @@ set_default("company_page", 0)
 set_default("company_page_size", 20)
 set_default("company_history", [])
 set_default("company_pins", [])
+# NEW: separate controlled form field key (fixes "first submit shows old query" bug)
+set_default("company_form_q", st.session_state["company_query"])
 
 # Pincode
 set_default("pincode_query", "")
@@ -132,6 +135,8 @@ set_default("pincode_page", 0)
 set_default("pincode_page_size", 20)
 set_default("pincode_history", [])
 set_default("pincode_pins", [])
+# NEW: separate controlled form field key
+set_default("pincode_form_q", st.session_state["pincode_query"])
 
 # -----------------------------
 # Small utilities
@@ -179,7 +184,7 @@ def add_pin(key: str, e: HistEntry, limit: int = 50):
 
 def paginate(df: pd.DataFrame, page_key: str, size_key: str) -> Tuple[pd.DataFrame, int, int, int]:
     total = len(df)
-    page_size = st.session_state[size_key]
+    page_size = max(1, int(st.session_state[size_key]))
     pages = max(1, math.ceil(total / page_size))
     st.session_state[page_key] = min(st.session_state.get(page_key, 0), pages - 1)
     cur = st.session_state[page_key]
@@ -202,13 +207,13 @@ def download_buttons(df: pd.DataFrame, csv_name: str, xlsx_name: str):
         st.download_button("⬇ Download Excel", data=excel_io, file_name=xlsx_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # -----------------------------
-# Highlight helpers
+# Highlight helpers (dark-green)
 # -----------------------------
 def _normalize(s: Any) -> str:
     return "" if pd.isna(s) else str(s)
 
 def highlight_match(text: Any, query: str) -> str:
-    """Wrap exact substring hits of the query in <mark>."""
+    """Wrap exact substring hits of the query in <mark> (dark green)."""
     s = _normalize(text)
     q = _normalize(query).strip()
     if not q:
@@ -219,13 +224,25 @@ def highlight_match(text: Any, query: str) -> str:
 def matched_in(row: pd.Series, q: str, cols: Iterable[str]) -> List[str]:
     """Return list of columns where query occurs (case-insensitive, substring)."""
     ql = q.strip().lower()
-    hits = []
     if not ql:
-        return hits
+        return []
+    hits = []
     for c in cols:
         if c in row and ql in _normalize(row[c]).lower():
             hits.append(c)
     return hits
+
+def build_substring_mask(df: pd.DataFrame, cols: Iterable[str], q: str) -> pd.Series:
+    """Vectorized OR across columns for substring matches (faster & stable)."""
+    if not q:
+        return pd.Series(True, index=df.index)  # no filter
+    ql = str(q).lower()
+    mask = pd.Series(False, index=df.index)
+    for c in cols:
+        if c in df.columns:
+            col = df[c].astype(str).str.lower()
+            mask = mask | col.str.contains(ql, regex=False, na=False)
+    return mask
 
 # -----------------------------
 # Sidebar: navigation + quick stats + history preview
@@ -311,23 +328,25 @@ def table_filters(df: pd.DataFrame, key_prefix: str, exclude_cols: Iterable[str]
 if menu == "🏢 Company Listing Checker":
     st.title("☁🏦 Company Listing Search")
 
-    # Search form with button
+    # Search form with button (BUGFIX: use dedicated form key and DO NOT pass `value=`; rely on session_state key)
     with st.form("company_search_form", clear_on_submit=False):
-        q = st.text_input(
+        q_input = st.text_input(
             "Search text (company name, bank or category):",
-            value=st.session_state.company_query,
-            key="company_search_input_form",
-            help="Search updates when you press the Search button."
+            key="company_form_q",
+            help="Type and press Search."
         )
         c1, c2 = st.columns([1,1])
         with c1:
             search_button = st.form_submit_button("🔍 Search")
         with c2:
             reset_button = st.form_submit_button("♻ Reset")
+
     if search_button:
-        st.session_state.company_query = q
+        # persist input -> query used for filtering
+        st.session_state.company_query = st.session_state.company_form_q
         st.session_state.company_page = 0
     if reset_button:
+        st.session_state.company_form_q = ""
         st.session_state.company_query = ""
         st.session_state.company_page = 0
 
@@ -359,15 +378,13 @@ if menu == "🏢 Company Listing Checker":
 
     # Apply filtering (on raw data)
     results = COMPANY_DF.copy()
-    qlow = st.session_state.company_query.strip().lower()
-    search_cols = ["COMPANY_NAME", "BANK_NAME", "COMPANY_CATEGORY"]
+    q = st.session_state.company_query.strip()
+    search_cols = [c for c in ["COMPANY_NAME", "BANK_NAME", "COMPANY_CATEGORY"] if c in results.columns]
 
     if not results.empty:
-        if qlow:
-            contains_mask = False
-            for c in search_cols:
-                contains_mask = contains_mask | results[c].astype(str).str.lower().str.contains(qlow, regex=False, na=False)
-            results = results[contains_mask]
+        # Vectorized mask (faster)
+        mask = build_substring_mask(results, search_cols, q)
+        results = results[mask]
         if st.session_state.company_bank != "All":
             results = results[results["BANK_NAME"].astype(str) == st.session_state.company_bank]
         if st.session_state.company_category != "All":
@@ -393,20 +410,22 @@ if menu == "🏢 Company Listing Checker":
             )
         )
 
-    # Prepare display copy with highlights and "Matched In"
-    display_df = results.copy()
-    if not display_df.empty:
-        if qlow:
-            # Add matched-in explanation
-            display_df["MATCHED_IN"] = results.apply(lambda r: ", ".join(matched_in(r, qlow, search_cols)) or "-", axis=1)
-            # Highlight search hits in key columns
-            for c in search_cols:
-                display_df[c] = display_df[c].apply(lambda x: highlight_match(x, qlow))
-
     st.success(f"✅ Found {len(results)} matching result(s)")
 
-    # Pagination
-    page_df, total, cur, pages = paginate(display_df, "company_page", "company_page_size")
+    # PAGINATION first (PERF: we only highlight current page to avoid lag)
+    page_df_raw, total, cur, pages = paginate(results, "company_page", "company_page_size")
+
+    # Prepare display copy for the page only (with highlights and matched-in)
+    if not page_df_raw.empty and q:
+        display_page = page_df_raw.copy()
+        display_page["MATCHED_IN"] = display_page.apply(lambda r: ", ".join(matched_in(r, q, search_cols)) or "-", axis=1)
+        for c in search_cols:
+            display_page[c] = display_page[c].apply(lambda x: highlight_match(x, q))
+        # Render as HTML so highlights show
+        st.markdown("### Results")
+        st.markdown(display_page.to_html(escape=False, index=False), unsafe_allow_html=True)
+    else:
+        st.dataframe(page_df_raw, use_container_width=True)
 
     # Pagination controls
     p1, p2, p3, p4, p5 = st.columns([1, 2, 2, 2, 1])
@@ -428,13 +447,6 @@ if menu == "🏢 Company Listing Checker":
         if st.button("Last ⏭", key="company_last") and cur < pages - 1:
             st.session_state.company_page = pages - 1
             rerun()
-
-    # Display as HTML so highlights show
-    if page_df.empty:
-        st.dataframe(page_df, use_container_width=True)
-    else:
-        st.markdown("### Results")
-        st.markdown(page_df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # Downloads use the raw filtered results (without HTML)
     download_buttons(results, "company_results.csv", "company_results.xlsx")
@@ -466,7 +478,8 @@ if menu == "🏢 Company Listing Checker":
                     ca, cb = st.columns(2)
                     with ca:
                         if st.button("Apply", key=f"apply_company_pin_{i}"):
-                            st.session_state.company_query = p["Query"] if p["Query"] != "(none)" else ""
+                            st.session_state.company_form_q = p["Query"] if p["Query"] != "(none)" else ""
+                            st.session_state.company_query = st.session_state.company_form_q
                             st.session_state.company_bank = p["Bank"]
                             st.session_state.company_category = p["Category/State"]
                             st.session_state.company_page = 0
@@ -490,23 +503,24 @@ if menu == "🏢 Company Listing Checker":
 elif menu == "📮 Pincode Listing Checker":
     st.title("📮🏦 Pincode Listing Search")
 
-    # Search form with button
+    # Search form with button (BUGFIX pattern)
     with st.form("pincode_search_form", clear_on_submit=False):
-        q2 = st.text_input(
+        q2_input = st.text_input(
             "Search text (pincode, location or state):",
-            value=st.session_state.pincode_query,
-            key="pincode_search_input_form",
-            help="Search updates when you press the Search button."
+            key="pincode_form_q",
+            help="Type and press Search."
         )
         c1, c2 = st.columns([1,1])
         with c1:
             search_button2 = st.form_submit_button("🔍 Search")
         with c2:
             reset_button2 = st.form_submit_button("♻ Reset")
+
     if search_button2:
-        st.session_state.pincode_query = q2
+        st.session_state.pincode_query = st.session_state.pincode_form_q
         st.session_state.pincode_page = 0
     if reset_button2:
+        st.session_state.pincode_form_q = ""
         st.session_state.pincode_query = ""
         st.session_state.pincode_page = 0
 
@@ -536,20 +550,12 @@ elif menu == "📮 Pincode Listing Checker":
             st.session_state.pincode_page = 0
 
     results2 = PINCODE_DF.copy()
-    qlow2 = st.session_state.pincode_query.strip().lower()
-    search_cols2 = ["PINCODE", "LOCATION", "STATE"]
+    q2 = st.session_state.pincode_query.strip()
+    search_cols2 = [c for c in ["PINCODE", "LOCATION", "STATE"] if c in results2.columns]
 
     if not results2.empty:
-        if qlow2:
-            mask = False
-            for c in search_cols2:
-                if c == "PINCODE":
-                    # match anywhere within PINCODE too (string compare)
-                    col = results2[c].astype(str)
-                else:
-                    col = results2[c].astype(str).str.lower()
-                mask = mask | col.str.contains(qlow2, regex=False, na=False)
-            results2 = results2[mask]
+        mask2 = build_substring_mask(results2, search_cols2, q2)
+        results2 = results2[mask2]
         if st.session_state.pincode_bank != "All":
             results2 = results2[results2["BANK"].astype(str) == st.session_state.pincode_bank]
         if st.session_state.pincode_state != "All":
@@ -574,17 +580,20 @@ elif menu == "📮 Pincode Listing Checker":
             )
         )
 
-    # Prepare display with highlights and explanation
-    display_df2 = results2.copy()
-    if not display_df2.empty and qlow2:
-        display_df2["MATCHED_IN"] = results2.apply(lambda r: ", ".join(matched_in(r, qlow2, search_cols2)) or "-", axis=1)
-        for c in search_cols2:
-            display_df2[c] = display_df2[c].apply(lambda x: highlight_match(x, qlow2))
-
     st.success(f"✅ Found {len(results2)} matching result(s)")
 
-    # Pagination
-    page_df2, total2, cur2, pages2 = paginate(display_df2, "pincode_page", "pincode_page_size")
+    # Pagination first (PERF: highlight only current page)
+    page_df2_raw, total2, cur2, pages2 = paginate(results2, "pincode_page", "pincode_page_size")
+
+    if not page_df2_raw.empty and q2:
+        display_page2 = page_df2_raw.copy()
+        display_page2["MATCHED_IN"] = display_page2.apply(lambda r: ", ".join(matched_in(r, q2, search_cols2)) or "-", axis=1)
+        for c in search_cols2:
+            display_page2[c] = display_page2[c].apply(lambda x: highlight_match(x, q2))
+        st.markdown("### Results")
+        st.markdown(display_page2.to_html(escape=False, index=False), unsafe_allow_html=True)
+    else:
+        st.dataframe(page_df2_raw, use_container_width=True)
 
     p1, p2, p3, p4, p5 = st.columns([1, 2, 2, 2, 1])
     with p1:
@@ -605,13 +614,6 @@ elif menu == "📮 Pincode Listing Checker":
         if st.button("Last ⏭", key="pincode_last") and cur2 < pages2 - 1:
             st.session_state.pincode_page = pages2 - 1
             rerun()
-
-    # Display as HTML so highlights show
-    if page_df2.empty:
-        st.dataframe(page_df2, use_container_width=True)
-    else:
-        st.markdown("### Results")
-        st.markdown(page_df2.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     download_buttons(results2, "pincode_results.csv", "pincode_results.xlsx")
 
@@ -641,7 +643,8 @@ elif menu == "📮 Pincode Listing Checker":
                     ca, cb = st.columns(2)
                     with ca:
                         if st.button("Apply", key=f"apply_pincode_pin_{i}"):
-                            st.session_state.pincode_query = p["Query"] if p["Query"] != "(none)" else ""
+                            st.session_state.pincode_form_q = p["Query"] if p["Query"] != "(none)" else ""
+                            st.session_state.pincode_query = st.session_state.pincode_form_q
                             st.session_state.pincode_bank = p["Bank"]
                             st.session_state.pincode_state = p["Category/State"]
                             st.session_state.pincode_page = 0
@@ -693,7 +696,8 @@ else:
     st.title("ℹ About")
     st.markdown(
         """
-        Private Listing App — search button, non-duplicated filters, highlight-on-match, pagination, history, and pins.
+        Private Listing App — search button, non-duplicated filters, DARK-GREEN highlight-on-match,
+        pagination, history, and pins.
         - Use Streamlit Secrets for password on Streamlit Cloud.
         - Make sure `company_listings_part1.xlsx`, `company_listings_part2.xlsx`, and `pincode_listings.xlsx` are present.
         """
