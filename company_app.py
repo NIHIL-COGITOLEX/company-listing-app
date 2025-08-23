@@ -432,11 +432,6 @@ def table_filters(df: pd.DataFrame, key_prefix: str, exclude_cols: Iterable[str]
 if menu == "🏢 Company Listing Checker":
     st.title("☁🏦 Company Listing Search")
 
-    # Reset callback
-    def reset_company_form():
-        st.session_state["company_form_q"] = ""
-        st.session_state["company_query"] = ""
-        st.session_state["company_page"] = 0
 
     # Search form
     with st.form("company_search_form", clear_on_submit=False):
@@ -447,20 +442,13 @@ if menu == "🏢 Company Listing Checker":
             help="Type and press Search.",
         )
         st.markdown("</div>", unsafe_allow_html=True)
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            search_button = st.form_submit_button("🔍 Search")
-        with c2:
-            reset_button = st.form_submit_button("♻ Reset", on_click=reset_company_form)
+       search_button = st.form_submit_button("🔍 Search")
+
 
     if search_button:
         st.session_state.company_query = st.session_state.company_form_q
         st.session_state.company_page = 0
 
-    if reset_button:
-        st.session_state.company_form_q = ""
-        st.session_state.company_query = ""
-        st.session_state.company_page = 0
 
     # Quick filters (top-level)
     banks = (
@@ -629,11 +617,6 @@ if menu == "🏢 Company Listing Checker":
 elif menu == "📮 Pincode Listing Checker":
     st.title("📮🏦 Pincode Listing Search")
 
-    # Reset callback
-    def reset_pincode_form():
-        st.session_state["pincode_form_q"] = ""
-        st.session_state["pincode_query"] = ""
-        st.session_state["pincode_page"] = 0
 
     # Search form
     with st.form("pincode_search_form", clear_on_submit=False):
@@ -644,20 +627,12 @@ elif menu == "📮 Pincode Listing Checker":
             help="Type and press Search.",
         )
         st.markdown("</div>", unsafe_allow_html=True)
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            search_button2 = st.form_submit_button("🔍 Search")
-        with c2:
-            reset_button2 = st.form_submit_button("♻ Reset", on_click=reset_pincode_form)
+       search_button2 = st.form_submit_button("🔍 Search")
 
     if search_button2:
         st.session_state.pincode_query = st.session_state.pincode_form_q
         st.session_state.pincode_page = 0
 
-    if reset_button2:
-        st.session_state.pincode_form_q = ""
-        st.session_state.pincode_query = ""
-        st.session_state.pincode_page = 0
 
     banks = (
         ["All"] + sorted(PINCODE_DF["BANK"].dropna().unique().tolist())
@@ -865,5 +840,6 @@ else:
         """
     )
     st.markdown("Made for mobile & desktop (responsive Streamlit layout).")
+
 
 
