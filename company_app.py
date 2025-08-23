@@ -432,7 +432,13 @@ def table_filters(df: pd.DataFrame, key_prefix: str, exclude_cols: Iterable[str]
 if menu == "🏢 Company Listing Checker":
     st.title("☁🏦 Company Listing Search")
 
-    # Search form (use dedicated form key; we DO NOT pass value=, we rely on session_state)
+    # Reset callback
+    def reset_company_form():
+        st.session_state["company_form_q"] = ""
+        st.session_state["company_query"] = ""
+        st.session_state["company_page"] = 0
+
+    # Search form
     with st.form("company_search_form", clear_on_submit=False):
         st.markdown("<div class='search-input'>", unsafe_allow_html=True)
         q_input = st.text_input(
@@ -445,10 +451,9 @@ if menu == "🏢 Company Listing Checker":
         with c1:
             search_button = st.form_submit_button("🔍 Search")
         with c2:
-            reset_button = st.form_submit_button("♻ Reset")
+            reset_button = st.form_submit_button("♻ Reset", on_click=reset_company_form)
 
     if search_button:
-        # Persist the form field into the active query
         st.session_state.company_query = st.session_state.company_form_q
         st.session_state.company_page = 0
 
@@ -624,7 +629,13 @@ if menu == "🏢 Company Listing Checker":
 elif menu == "📮 Pincode Listing Checker":
     st.title("📮🏦 Pincode Listing Search")
 
-    # Search form (dedicated form key)
+    # Reset callback
+    def reset_pincode_form():
+        st.session_state["pincode_form_q"] = ""
+        st.session_state["pincode_query"] = ""
+        st.session_state["pincode_page"] = 0
+
+    # Search form
     with st.form("pincode_search_form", clear_on_submit=False):
         st.markdown("<div class='search-input'>", unsafe_allow_html=True)
         q2_input = st.text_input(
@@ -637,7 +648,7 @@ elif menu == "📮 Pincode Listing Checker":
         with c1:
             search_button2 = st.form_submit_button("🔍 Search")
         with c2:
-            reset_button2 = st.form_submit_button("♻ Reset")
+            reset_button2 = st.form_submit_button("♻ Reset", on_click=reset_pincode_form)
 
     if search_button2:
         st.session_state.pincode_query = st.session_state.pincode_form_q
@@ -854,4 +865,5 @@ else:
         """
     )
     st.markdown("Made for mobile & desktop (responsive Streamlit layout).")
+
 
