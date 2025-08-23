@@ -1,497 +1,549 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-import io
-from math import ceil
+# company_app_final.py
+"""
+Private Listing App - Final
+Features:
+- Live search on main page (no search button)
+- Column filters above the table (selects & sliders)
+- Pagination + selectable page size
+- History (last 50) + Pins (save/apply/remove)
+- CSV / Excel download
+- Responsive UI for desktop & mobile
+- Password protection via st.secrets['password'] (fallback provided)
+Dependencies: streamlit, pandas, matplotlib, openpyxl
+"""
 
-# =====================================================
-# App Configuration
-# =====================================================
+from __future__ import annotations
+import io
+import math
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
+
+import pandas as pd
+import streamlit as st
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# App config and CSS
+# -----------------------------
 st.set_page_config(page_title="Private Listing App", page_icon="☁", layout="wide")
 
-# --- Password (use Streamlit Secrets in production) ---
-# 1) In Streamlit Cloud, set in: App → Settings → Secrets
-#    [password = "YOUR_STRONG_PASSWORD"]
-# 2) Locally, create .streamlit/secrets.toml with the same key.
-DEFAULT_PASSWORD = "NIHIL IS GREAT"
-PASSWORD = st.secrets.get("password", DEFAULT_PASSWORD)
-
-# =====================================================
-# Password Protection
-# =====================================================
-def check_password():
-    if "password_correct" not in st.session_state:
-        st.session_state.password_correct = False
-
-    if not st.session_state.password_correct:
-        st.markdown("<h2 style='text-align: center;'>🔐 Protected App</h2>", unsafe_allow_html=True)
-        pw = st.text_input("Enter Password", type="password", key="login_pw")
-        if st.button("Unlock", use_container_width=True):
-            if pw == PASSWORD:
-                st.session_state.password_correct = True
-                st.success("✅ Access Granted")
-            else:
-                st.error("❌ Incorrect Password")
-        st.stop()
-    return True
-
-# =====================================================
-# Custom CSS Styling
-# =====================================================
+# Custom CSS: dark neon look, mobile-friendly
 st.markdown(
     """
-<style>
-.stApp { background-color: #0d001a; }
-h1, h2, h3, h4 { color: #FFD700; text-align: center; font-family: 'Trebuchet MS', sans-serif; font-weight: bold; text-shadow: 0px 0px 10px #FF0000; }
-.stTextInput > div > div > input { background: rgba(255, 255, 255, 0.08); border: 1px solid #FFD700; border-radius: 10px; color: #FFD700; padding: 10px; font-size: 16px; }
-.stDownloadButton button, .stButton button { background: linear-gradient(45deg, #ff0040, #ff8000); color: white; border-radius: 10px; border: none; font-weight: bold; padding: 10px 20px; box-shadow: 0 0 15px rgba(255, 0, 0, 0.7); }
-.stSidebar { background: #1a001f; }
-</style>
-""",
+    <style>
+    .stApp { background-color: #0d001a; }
+    h1, h2, h3, h4 { color: #FFD700; font-family: 'Trebuchet MS', sans-serif; font-weight: 700; text-shadow: 0 0 6px #FF0000; }
+    .search-input .stTextInput>div>div>input { background: rgba(255,255,255,0.04) !important; border:1px solid #FFD700 !important; color:#FFD700 !important; border-radius:10px !important; padding:10px !important; }
+    .stButton>button { background: linear-gradient(45deg,#ff0040,#ff8000) !important; color:white !important; font-weight:700 !important; border-radius:8px !important; }
+    .table-filter-row { background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,215,0,0.12); padding:10px; border-radius:8px; margin-bottom:10px; }
+    .sidebar .stButton>button { width:100% !important; }
+    @media(max-width:600px){
+        .stButton>button { padding:8px 10px !important; font-size:14px !important; }
+    }
+    </style>
+    """,
     unsafe_allow_html=True,
 )
 
-# =====================================================
-# Data Loaders (cached)
-# =====================================================
+# -----------------------------
+# Password (use Streamlit Secrets in production)
+# -----------------------------
+DEFAULT_PASSWORD = "NIHIL IS GREAT"
+PASSWORD = st.secrets.get("password", DEFAULT_PASSWORD)
+
+
+def require_password() -> None:
+    """Simple password gate. Stores flag in session_state."""
+    if "password_ok" not in st.session_state:
+        st.session_state["password_ok"] = False
+
+    if not st.session_state["password_ok"]:
+        st.markdown("<h2 style='text-align:center'>🔐 Protected App</h2>", unsafe_allow_html=True)
+        with st.form("pw_form"):
+            p = st.text_input("Enter password", type="password", key="pw_input")
+            submitted = st.form_submit_button("Unlock")
+            if submitted:
+                if p == PASSWORD:
+                    st.session_state["password_ok"] = True
+                    st.success("✅ Access granted")
+                else:
+                    st.error("❌ Incorrect password")
+        # stop page until unlocked
+        if not st.session_state["password_ok"]:
+            st.stop()
+
+
+require_password()
+
+# -----------------------------
+# Load data (cached)
+# -----------------------------
 @st.cache_data(show_spinner=False)
-def load_company_data():
+def load_company_data() -> pd.DataFrame:
     try:
         df1 = pd.read_excel("company_listings_part1.xlsx")
         df2 = pd.read_excel("company_listings_part2.xlsx")
     except FileNotFoundError as e:
-        st.error(f"❌ Missing dataset file: {e}")
-        st.stop()
+        st.error(f"Missing company dataset: {e}")
+        return pd.DataFrame()
     df = pd.concat([df1, df2], ignore_index=True)
     df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
     return df
 
+
 @st.cache_data(show_spinner=False)
-def load_pincode_data():
+def load_pincode_data() -> pd.DataFrame:
     try:
         df = pd.read_excel("pincode_listings.xlsx")
     except FileNotFoundError as e:
-        st.error(f"❌ Missing dataset file: {e}")
-        st.stop()
+        st.error(f"Missing pincode dataset: {e}")
+        return pd.DataFrame()
     df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
     return df
 
-# =====================================================
-# Helpers
-# =====================================================
+
+COMPANY_DF = load_company_data()
+PINCODE_DF = load_pincode_data()
+
+# -----------------------------
+# Session state defaults
+# -----------------------------
+def set_default(k: str, v: Any):
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+
+# Company
+set_default("company_query", "")
+set_default("company_bank", "All")
+set_default("company_category", "All")
+set_default("company_page", 0)
+set_default("company_page_size", 20)
+set_default("company_history", [])
+set_default("company_pins", [])
+
+# Pincode
+set_default("pincode_query", "")
+set_default("pincode_bank", "All")
+set_default("pincode_state", "All")
+set_default("pincode_page", 0)
+set_default("pincode_page_size", 20)
+set_default("pincode_history", [])
+set_default("pincode_pins", [])
+
+# -----------------------------
+# Small utilities
+# -----------------------------
 def rerun():
     try:
-        st.rerun()
-    except Exception:
         st.experimental_rerun()
+    except Exception:
+        pass
 
 
-def normalize_history_entry(entry: dict) -> dict:
-    # Ensure identical structure for dedupe
-    return {
-        "query": entry.get("query", ""),
-        "bank": entry.get("bank", "All"),
-        "category": entry.get("category", entry.get("state", "All")),
-        "results": int(entry.get("results", 0)),
-        "scope": entry.get("scope", "company"),
-    }
+@dataclass
+class HistEntry:
+    query: str
+    bank: str
+    cat_state: str
+    results: int
+    scope: str  # "company" or "pincode"
+
+    def row(self) -> Dict[str, Any]:
+        return {
+            "Query": self.query or "(none)",
+            "Bank": self.bank,
+            "Category/State": self.cat_state,
+            "Results": int(self.results),
+            "Scope": self.scope,
+        }
 
 
-def add_to_history(state_key: str, entry: dict, limit: int = 50):
-    entry = normalize_history_entry(entry)
-    if state_key not in st.session_state:
-        st.session_state[state_key] = []
-    # Avoid duplicate immediate entries
-    if not st.session_state[state_key] or st.session_state[state_key][0] != entry:
-        st.session_state[state_key].insert(0, entry)
-    st.session_state[state_key] = st.session_state[state_key][:limit]
+def add_history(key: str, e: HistEntry, limit: int = 50):
+    lst = st.session_state.get(key, [])
+    row = e.row()
+    if not lst or lst[0] != row:
+        lst.insert(0, row)
+    st.session_state[key] = lst[:limit]
 
 
-def pin_current(state_key: str, entry: dict, limit: int = 50):
-    entry = normalize_history_entry(entry)
-    if state_key not in st.session_state:
-        st.session_state[state_key] = []
-    # Prevent duplicates in pins
-    if entry not in st.session_state[state_key]:
-        st.session_state[state_key].insert(0, entry)
-        st.session_state[state_key] = st.session_state[state_key][:limit]
+def add_pin(key: str, e: HistEntry, limit: int = 50):
+    pins = st.session_state.get(key, [])
+    row = e.row()
+    if row not in pins:
+        pins.insert(0, row)
+    st.session_state[key] = pins[:limit]
 
 
-def paginate(df: pd.DataFrame, page_key: str, page_size: int):
-    if page_key not in st.session_state:
-        st.session_state[page_key] = 0
+def paginate(df: pd.DataFrame, page_key: str, size_key: str) -> Tuple[pd.DataFrame, int, int, int]:
     total = len(df)
-    pages = max(1, ceil(total / page_size))
-    current = min(st.session_state[page_key], pages - 1)
-
-    start = current * page_size
+    page_size = st.session_state[size_key]
+    pages = max(1, math.ceil(total / page_size))
+    st.session_state[page_key] = min(st.session_state.get(page_key, 0), pages - 1)
+    cur = st.session_state[page_key]
+    start = cur * page_size
     end = start + page_size
-    slice_df = df.iloc[start:end]
+    return df.iloc[start:end], total, cur, pages
 
-    c1, c2, c3, c4, c5 = st.columns([1,2,2,2,1])
+
+def download_buttons(df: pd.DataFrame, csv_name: str, xlsx_name: str):
+    if df.empty:
+        return
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    excel_io = io.BytesIO()
+    df.to_excel(excel_io, index=False, engine="openpyxl")
+    excel_io.seek(0)
+    c1, c2 = st.columns([1, 1])
     with c1:
-        if st.button("⏮ First", key=f"{page_key}_first") and current > 0:
-            st.session_state[page_key] = 0
-            rerun()
+        st.download_button("⬇ Download CSV", data=csv_bytes, file_name=csv_name, mime="text/csv")
     with c2:
-        if st.button("⬅ Prev", key=f"{page_key}_prev") and current > 0:
-            st.session_state[page_key] = current - 1
-            rerun()
+        st.download_button("⬇ Download Excel", data=excel_io, file_name=xlsx_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+# -----------------------------
+# Sidebar: navigation + quick stats + history preview
+# -----------------------------
+with st.sidebar:
+    st.title("📂 Navigation")
+    menu = st.radio("Choose Feature", ["🏢 Company Listing Checker", "📮 Pincode Listing Checker", "📊 Dashboard", "ℹ About App"], index=0)
+
+    st.markdown("---")
+    st.subheader("📈 Quick stats")
+    st.metric("Companies", f"{len(COMPANY_DF):,}")
+    st.metric("Pincodes", f"{len(PINCODE_DF):,}")
+    st.markdown("---")
+    st.subheader("🕒 Recent (preview)")
+    preview = []
+    if st.session_state.company_history:
+        preview.extend(st.session_state.company_history[:3])
+    if st.session_state.pincode_history:
+        preview.extend(st.session_state.pincode_history[:3])
+    if preview:
+        st.dataframe(pd.DataFrame(preview), use_container_width=True, height=180)
+    else:
+        st.info("No history yet")
+
+# -----------------------------
+# Helper: in-table filters UI (above table)
+# -----------------------------
+def table_filters(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
+    """
+    Shows up to 6 filters chosen heuristically:
+    up to 4 categorical/object columns + up to 2 numeric columns.
+    Returns filtered dataframe.
+    """
+    if df.empty:
+        return df
+
+    cols = list(df.columns)
+    obj_cols = [c for c in cols if df[c].dtype == object or pd.api.types.is_categorical_dtype(df[c])]
+    num_cols = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
+    picked = (obj_cols[:4] + num_cols[:2])[:6]
+
+    st.markdown("<div class='table-filter-row'>", unsafe_allow_html=True)
+    if picked:
+        # display in rows of 3
+        per_row = 3
+        rows = math.ceil(len(picked) / per_row)
+        idx = 0
+        for _ in range(rows):
+            cols_ui = st.columns(per_row)
+            for col_ui in cols_ui:
+                if idx >= len(picked):
+                    break
+                cname = picked[idx]
+                idx += 1
+                if cname in obj_cols:
+                    options = ["All"] + sorted([str(x) for x in df[cname].dropna().unique()])
+                    sel = col_ui.selectbox(cname, options, index=0, key=f"{key_prefix}_sel_{cname}")
+                    if sel != "All":
+                        df = df[df[cname].astype(str) == sel]
+                else:
+                    # numeric slider
+                    mini = float(pd.to_numeric(df[cname], errors="coerce").min())
+                    maxi = float(pd.to_numeric(df[cname], errors="coerce").max())
+                    if math.isfinite(mini) and math.isfinite(maxi):
+                        step = (maxi - mini) / 100 if maxi > mini else 1.0
+                        rng = col_ui.slider(cname, min_value=mini, max_value=maxi, value=(mini, maxi), step=step, key=f"{key_prefix}_rng_{cname}")
+                        df = df[(pd.to_numeric(df[cname], errors="coerce") >= rng[0]) & (pd.to_numeric(df[cname], errors="coerce") <= rng[1])]
+                    else:
+                        col_ui.write(f"{cname} (no numeric range)")
+    st.markdown("</div>", unsafe_allow_html=True)
+    return df
+
+
+# -----------------------------
+# COMPANY MODULE
+# -----------------------------
+if menu == "🏢 Company Listing Checker":
+    st.title("☁🏦 Company Listing Search")
+
+    # Live search - main page input
+    st.markdown("### 🔎 Live search")
+    q = st.text_input("Type company name, bank or category (live):", value=st.session_state.company_query, key="company_search_input")
+    if q != st.session_state.company_query:
+        st.session_state.company_query = q
+        st.session_state.company_page = 0
+
+    # Quick filters (main page pills)
+    banks = ["All"] + (sorted(COMPANY_DF["BANK_NAME"].dropna().unique().tolist()) if not COMPANY_DF.empty else ["All"])
+    cats = ["All"] + (sorted(COMPANY_DF["COMPANY_CATEGORY"].dropna().unique().tolist()) if not COMPANY_DF.empty else ["All"])
+    c1, c2, c3 = st.columns([2, 2, 1])
+    with c1:
+        bank_choice = st.selectbox("🏦 Bank", banks, index=(banks.index(st.session_state.company_bank) if st.session_state.company_bank in banks else 0), key="company_bank_main")
+        if bank_choice != st.session_state.company_bank:
+            st.session_state.company_bank = bank_choice
+            st.session_state.company_page = 0
+    with c2:
+        cat_choice = st.selectbox("📂 Category", cats, index=(cats.index(st.session_state.company_category) if st.session_state.company_category in cats else 0), key="company_cat_main")
+        if cat_choice != st.session_state.company_category:
+            st.session_state.company_category = cat_choice
+            st.session_state.company_page = 0
     with c3:
-        st.markdown(f"**Page {current+1} / {pages}**  ")
-    with c4:
-        if st.button("Next ➡", key=f"{page_key}_next") and current < pages - 1:
-            st.session_state[page_key] = current + 1
-            rerun()
-    with c5:
-        if st.button("Last ⏭", key=f"{page_key}_last") and current < pages - 1:
-            st.session_state[page_key] = pages - 1
-            rerun()
+        size_choice = st.selectbox("Rows", [10, 20, 50, 100], index=[10, 20, 50, 100].index(st.session_state.company_page_size), key="company_size_main")
+        if size_choice != st.session_state.company_page_size:
+            st.session_state.company_page_size = size_choice
+            st.session_state.company_page = 0
 
-    st.dataframe(slice_df, use_container_width=True)
-    return slice_df, total
-
-
-# =====================================================
-# Main App
-# =====================================================
-if check_password():
-    # Sidebar Navigation
-    st.sidebar.title("📂 Navigation")
-    menu = st.sidebar.radio(
-        "Choose Feature",
-        ["🏢 Company Listing Checker", "📮 Pincode Listing Checker", "📊 Dashboard", "ℹ About App"],
-        key="nav_menu",
-    )
-
-    # -------------------------------------------------
-    # Company Listing Checker (Live Search + Pagination + History + Pins)
-    # -------------------------------------------------
-    if menu == "🏢 Company Listing Checker":
-        st.title("☁🏦 Company Listing Search")
-        data = load_company_data()
-
-        # --- Sidebar Controls ---
-        st.sidebar.markdown("### 🔎 Company Filters")
-        if "company_query" not in st.session_state:
-            st.session_state.company_query = ""
-        if "company_bank" not in st.session_state:
-            st.session_state.company_bank = "All"
-        if "company_category" not in st.session_state:
-            st.session_state.company_category = "All"
-        if "company_page_size" not in st.session_state:
-            st.session_state.company_page_size = 20
-
-        st.session_state.company_query = st.sidebar.text_input(
-            "Search (Company / Bank / Category)",
-            value=st.session_state.company_query,
-            key="company_query_input",
-        )
-        st.session_state.company_bank = st.sidebar.selectbox(
-            "🏦 Bank",
-            ["All"] + sorted(data["BANK_NAME"].dropna().unique()),
-            index=(0 if st.session_state.company_bank == "All" else ( ["All"] + sorted(data["BANK_NAME"].dropna().unique()) ).index(st.session_state.company_bank) if st.session_state.company_bank in ["All"] + sorted(data["BANK_NAME"].dropna().unique()) else 0),
-            key="company_bank_select",
-        )
-        st.session_state.company_category = st.sidebar.selectbox(
-            "📂 Category",
-            ["All"] + sorted(data["COMPANY_CATEGORY"].dropna().unique()),
-            index=(0 if st.session_state.company_category == "All" else ( ["All"] + sorted(data["COMPANY_CATEGORY"].dropna().unique()) ).index(st.session_state.company_category) if st.session_state.company_category in ["All"] + sorted(data["COMPANY_CATEGORY"].dropna().unique()) else 0),
-            key="company_category_select",
-        )
-        st.session_state.company_page_size = st.sidebar.selectbox(
-            "Rows per page", [10, 20, 50, 100], index=[10,20,50,100].index(st.session_state.company_page_size), key="company_page_size_select"
-        )
-
-        # Detect changes to reset page and record history
-        current_tuple = (
-            st.session_state.company_query,
-            st.session_state.company_bank,
-            st.session_state.company_category,
-        )
-        if "company_last" not in st.session_state:
-            st.session_state.company_last = current_tuple
-        if current_tuple != st.session_state.company_last:
-            st.session_state.company_last = current_tuple
-            st.session_state["company_page"] = 0
-
-        # --- Live Filtering ---
-        results = data.copy()
-        q = st.session_state.company_query.strip().lower()
-        if q:
+    # Apply live filtering
+    results = COMPANY_DF.copy()
+    if not results.empty:
+        qlow = st.session_state.company_query.strip().lower()
+        if qlow:
             mask = (
-                results["COMPANY_NAME"].str.lower().str.contains(q, regex=False, na=False)
-                | results["BANK_NAME"].str.lower().str.contains(q, regex=False, na=False)
-                | results["COMPANY_CATEGORY"].str.lower().str.contains(q, regex=False, na=False)
+                results["COMPANY_NAME"].astype(str).str.lower().str.contains(qlow, regex=False, na=False)
+                | results["BANK_NAME"].astype(str).str.lower().str.contains(qlow, regex=False, na=False)
+                | results["COMPANY_CATEGORY"].astype(str).str.lower().str.contains(qlow, regex=False, na=False)
             )
             results = results[mask]
         if st.session_state.company_bank != "All":
-            results = results[results["BANK_NAME"] == st.session_state.company_bank]
+            results = results[results["BANK_NAME"].astype(str) == st.session_state.company_bank]
         if st.session_state.company_category != "All":
-            results = results[results["COMPANY_CATEGORY"] == st.session_state.company_category]
+            results = results[results["COMPANY_CATEGORY"].astype(str) == st.session_state.company_category]
 
-        # --- History (auto) ---
-        if q or st.session_state.company_bank != "All" or st.session_state.company_category != "All":
-            add_to_history(
-                "company_history",
-                {
-                    "query": st.session_state.company_query,
-                    "bank": st.session_state.company_bank,
-                    "category": st.session_state.company_category,
-                    "results": len(results),
-                    "scope": "company",
-                },
-            )
+    # In-table filters (main page)
+    results = table_filters(results, "company_table")
 
-        # --- Results + Pagination ---
-        st.success(f"✅ Found {len(results)} matching result(s)")
-        page_slice, total = paginate(results, "company_page", st.session_state.company_page_size)
+    # Save to history automatically if any filter is active
+    if st.session_state.company_query or st.session_state.company_bank != "All" or st.session_state.company_category != "All":
+        add_history("company_history", HistEntry(query=st.session_state.company_query, bank=st.session_state.company_bank, cat_state=st.session_state.company_category, results=len(results), scope="company"))
 
-        # --- Downloads (full filtered set) ---
-        if total > 0:
-            csv = results.to_csv(index=False).encode("utf-8")
-            excel_buffer = io.BytesIO()
-            results.to_excel(excel_buffer, index=False, engine="openpyxl")
-            excel_buffer.seek(0)
-            st.download_button("⬇ Download Results (CSV)", data=csv, file_name="company_results.csv", mime="text/csv")
-            st.download_button(
-                "⬇ Download Results (Excel)",
-                data=excel_buffer,
-                file_name="company_results.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+    # Pagination + show
+    st.success(f"✅ Found {len(results)} matching result(s)")
+    page_df, total, cur, pages = paginate(results, "company_page", "company_page_size")
 
-        # --- Sidebar: History & Pins ---
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 🕒 Recent Company Searches")
-        if "company_history" in st.session_state and st.session_state.company_history:
-            hist_df = pd.DataFrame(st.session_state.company_history)
-            st.sidebar.dataframe(hist_df.head(10), use_container_width=True)
-            if st.sidebar.button("🧹 Clear History", key="clear_company_hist", use_container_width=True):
-                st.session_state.company_history = []
-                rerun()
-        else:
-            st.sidebar.info("No search history yet.")
-
-        # Pins
-        st.sidebar.markdown("### 📌 Pinned Searches")
-        if "company_pins" not in st.session_state:
-            st.session_state.company_pins = []
-        if st.sidebar.button("📌 Pin current search", key="pin_company", use_container_width=True):
-            pin_current(
-                "company_pins",
-                {
-                    "query": st.session_state.company_query,
-                    "bank": st.session_state.company_bank,
-                    "category": st.session_state.company_category,
-                    "results": len(results),
-                    "scope": "company",
-                },
-            )
+    # Pagination controls
+    p1, p2, p3, p4, p5 = st.columns([1, 2, 2, 2, 1])
+    with p1:
+        if st.button("⏮ First", key="company_first") and cur > 0:
+            st.session_state.company_page = 0
             rerun()
-        # List pins with apply/remove
-        for i, pin in enumerate(st.session_state.company_pins):
-            with st.sidebar.expander(f"{i+1}. {pin['query'] or '(no query)'} | {pin['bank']} | {pin['category']} ({pin['results']})"):
-                cA, cB = st.columns(2)
-                with cA:
-                    if st.button("Apply", key=f"apply_company_pin_{i}"):
-                        st.session_state.company_query = pin["query"]
-                        st.session_state.company_bank = pin["bank"]
-                        st.session_state.company_category = pin["category"]
-                        st.session_state.company_last = (pin["query"], pin["bank"], pin["category"])  # keep page reset clean
-                        rerun()
-                with cB:
-                    if st.button("Remove", key=f"remove_company_pin_{i}"):
-                        st.session_state.company_pins.pop(i)
-                        rerun()
+    with p2:
+        if st.button("⬅ Prev", key="company_prev") and cur > 0:
+            st.session_state.company_page = cur - 1
+            rerun()
+    with p3:
+        st.markdown(f"**Page {cur+1} / {pages}**")
+    with p4:
+        if st.button("Next ➡", key="company_next") and cur < pages - 1:
+            st.session_state.company_page = cur + 1
+            rerun()
+    with p5:
+        if st.button("Last ⏭", key="company_last") and cur < pages - 1:
+            st.session_state.company_page = pages - 1
+            rerun()
 
-    # -------------------------------------------------
-    # Pincode Listing Checker (Live Search + Pagination + History + Pins)
-    # -------------------------------------------------
-    elif menu == "📮 Pincode Listing Checker":
-        st.title("📮🏦 Pincode Listing Search")
-        data = load_pincode_data()
+    st.dataframe(page_df, use_container_width=True)
 
-        # --- Sidebar Controls ---
-        st.sidebar.markdown("### 🔎 Pincode Filters")
-        if "pincode_query" not in st.session_state:
-            st.session_state.pincode_query = ""
-        if "pincode_bank" not in st.session_state:
-            st.session_state.pincode_bank = "All"
-        if "pincode_state" not in st.session_state:
-            st.session_state.pincode_state = "All"
-        if "pincode_page_size" not in st.session_state:
-            st.session_state.pincode_page_size = 20
+    # Downloads
+    download_buttons(results, "company_results.csv", "company_results.xlsx")
 
-        st.session_state.pincode_query = st.sidebar.text_input(
-            "Search (Pincode / Location / State)",
-            value=st.session_state.pincode_query,
-            key="pincode_query_input",
-        )
-        st.session_state.pincode_bank = st.sidebar.selectbox(
-            "🏦 Bank",
-            ["All"] + sorted(data["BANK"].dropna().unique()),
-            index=(0 if st.session_state.pincode_bank == "All" else ( ["All"] + sorted(data["BANK"].dropna().unique()) ).index(st.session_state.pincode_bank) if st.session_state.pincode_bank in ["All"] + sorted(data["BANK"].dropna().unique()) else 0),
-            key="pincode_bank_select",
-        )
-        st.session_state.pincode_state = st.sidebar.selectbox(
-            "🌍 State",
-            ["All"] + sorted(data["STATE"].dropna().unique()),
-            index=(0 if st.session_state.pincode_state == "All" else ( ["All"] + sorted(data["STATE"].dropna().unique()) ).index(st.session_state.pincode_state) if st.session_state.pincode_state in ["All"] + sorted(data["STATE"].dropna().unique()) else 0),
-            key="pincode_state_select",
-        )
-        st.session_state.pincode_page_size = st.sidebar.selectbox(
-            "Rows per page", [10, 20, 50, 100], index=[10,20,50,100].index(st.session_state.pincode_page_size), key="pincode_page_size_select"
-        )
+    # Sidebar: pins & history management for company
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("📌 Company Pins & History")
+        if st.button("📌 Pin current", key="pin_company"):
+            add_pin("company_pins", HistEntry(query=st.session_state.company_query, bank=st.session_state.company_bank, cat_state=st.session_state.company_category, results=len(results), scope="company"))
+            rerun()
+        if st.button("🧹 Clear Company History", key="clear_company_hist"):
+            st.session_state.company_history = []
+            rerun()
 
-        # Detect changes to reset page and record history
-        current_tuple = (
-            st.session_state.pincode_query,
-            st.session_state.pincode_bank,
-            st.session_state.pincode_state,
-        )
-        if "pincode_last" not in st.session_state:
-            st.session_state.pincode_last = current_tuple
-        if current_tuple != st.session_state.pincode_last:
-            st.session_state.pincode_last = current_tuple
-            st.session_state["pincode_page"] = 0
+        st.markdown("**Pins**")
+        if st.session_state.company_pins:
+            for i, p in enumerate(st.session_state.company_pins):
+                with st.expander(f"{i+1}. {p['Query']} | {p['Bank']} | {p['Category/State']} ({p['Results']})"):
+                    ca, cb = st.columns(2)
+                    with ca:
+                        if st.button("Apply", key=f"apply_company_pin_{i}"):
+                            st.session_state.company_query = p["Query"] if p["Query"] != "(none)" else ""
+                            st.session_state.company_bank = p["Bank"]
+                            st.session_state.company_category = p["Category/State"]
+                            st.session_state.company_page = 0
+                            rerun()
+                    with cb:
+                        if st.button("Remove", key=f"remove_company_pin_{i}"):
+                            st.session_state.company_pins.pop(i)
+                            rerun()
+        else:
+            st.write("No pins yet")
 
-        # --- Live Filtering ---
-        results = data.copy()
-        q = st.session_state.pincode_query.strip().lower()
-        if q:
+        st.markdown("**History (recent)**")
+        if st.session_state.company_history:
+            st.dataframe(pd.DataFrame(st.session_state.company_history).head(10), use_container_width=True, height=200)
+        else:
+            st.write("No history yet")
+
+# -----------------------------
+# PINCODE MODULE
+# -----------------------------
+elif menu == "📮 Pincode Listing Checker":
+    st.title("📮🏦 Pincode Listing Search")
+
+    st.markdown("### 🔎 Live search")
+    q2 = st.text_input("Type pincode, location or state (live):", value=st.session_state.pincode_query, key="pincode_search_input")
+    if q2 != st.session_state.pincode_query:
+        st.session_state.pincode_query = q2
+        st.session_state.pincode_page = 0
+
+    banks = ["All"] + (sorted(PINCODE_DF["BANK"].dropna().unique().tolist()) if not PINCODE_DF.empty else ["All"])
+    states = ["All"] + (sorted(PINCODE_DF["STATE"].dropna().unique().tolist()) if not PINCODE_DF.empty else ["All"])
+    p1, p2, p3 = st.columns([2, 2, 1])
+    with p1:
+        bank_choice = st.selectbox("🏦 Bank", banks, index=(banks.index(st.session_state.pincode_bank) if st.session_state.pincode_bank in banks else 0), key="pincode_bank_main")
+        if bank_choice != st.session_state.pincode_bank:
+            st.session_state.pincode_bank = bank_choice
+            st.session_state.pincode_page = 0
+    with p2:
+        state_choice = st.selectbox("🌍 State", states, index=(states.index(st.session_state.pincode_state) if st.session_state.pincode_state in states else 0), key="pincode_state_main")
+        if state_choice != st.session_state.pincode_state:
+            st.session_state.pincode_state = state_choice
+            st.session_state.pincode_page = 0
+    with p3:
+        size_choice = st.selectbox("Rows", [10, 20, 50, 100], index=[10, 20, 50, 100].index(st.session_state.pincode_page_size), key="pincode_size_main")
+        if size_choice != st.session_state.pincode_page_size:
+            st.session_state.pincode_page_size = size_choice
+            st.session_state.pincode_page = 0
+
+    results2 = PINCODE_DF.copy()
+    if not results2.empty:
+        qlow = st.session_state.pincode_query.strip().lower()
+        if qlow:
             mask = (
-                results["PINCODE"].astype(str).str.contains(q, regex=False, na=False)
-                | results["LOCATION"].str.lower().str.contains(q, regex=False, na=False)
-                | results["STATE"].str.lower().str.contains(q, regex=False, na=False)
+                results2["PINCODE"].astype(str).str.contains(qlow, regex=False, na=False)
+                | results2["LOCATION"].astype(str).str.lower().str.contains(qlow, regex=False, na=False)
+                | results2["STATE"].astype(str).str.lower().str.contains(qlow, regex=False, na=False)
             )
-            results = results[mask]
+            results2 = results2[mask]
         if st.session_state.pincode_bank != "All":
-            results = results[results["BANK"] == st.session_state.pincode_bank]
+            results2 = results2[results2["BANK"].astype(str) == st.session_state.pincode_bank]
         if st.session_state.pincode_state != "All":
-            results = results[results["STATE"] == st.session_state.pincode_state]
+            results2 = results2[results2["STATE"].astype(str) == st.session_state.pincode_state]
 
-        # --- History (auto) ---
-        if q or st.session_state.pincode_bank != "All" or st.session_state.pincode_state != "All":
-            add_to_history(
-                "pincode_history",
-                {
-                    "query": st.session_state.pincode_query,
-                    "bank": st.session_state.pincode_bank,
-                    "state": st.session_state.pincode_state,
-                    "results": len(results),
-                    "scope": "pincode",
-                },
-            )
+    results2 = table_filters(results2, "pincode_table")
 
-        # --- Results + Pagination ---
-        st.success(f"✅ Found {len(results)} matching result(s)")
-        page_slice, total = paginate(results, "pincode_page", st.session_state.pincode_page_size)
+    if st.session_state.pincode_query or st.session_state.pincode_bank != "All" or st.session_state.pincode_state != "All":
+        add_history("pincode_history", HistEntry(query=st.session_state.pincode_query, bank=st.session_state.pincode_bank, cat_state=st.session_state.pincode_state, results=len(results2), scope="pincode"))
 
-        # --- Downloads (full filtered set) ---
-        if total > 0:
-            csv = results.to_csv(index=False).encode("utf-8")
-            excel_buffer = io.BytesIO()
-            results.to_excel(excel_buffer, index=False, engine="openpyxl")
-            excel_buffer.seek(0)
-            st.download_button("⬇ Download Results (CSV)", data=csv, file_name="pincode_results.csv", mime="text/csv")
-            st.download_button(
-                "⬇ Download Results (Excel)",
-                data=excel_buffer,
-                file_name="pincode_results.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+    st.success(f"✅ Found {len(results2)} matching result(s)")
+    page_df2, total2, cur2, pages2 = paginate(results2, "pincode_page", "pincode_page_size")
 
-        # --- Sidebar: History & Pins ---
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 🕒 Recent Pincode Searches")
-        if "pincode_history" in st.session_state and st.session_state.pincode_history:
-            hist_df = pd.DataFrame(st.session_state.pincode_history)
-            st.sidebar.dataframe(hist_df.head(10), use_container_width=True)
-            if st.sidebar.button("🧹 Clear History", key="clear_pincode_hist", use_container_width=True):
-                st.session_state.pincode_history = []
-                rerun()
-        else:
-            st.sidebar.info("No search history yet.")
-
-        st.sidebar.markdown("### 📌 Pinned Searches")
-        if "pincode_pins" not in st.session_state:
-            st.session_state.pincode_pins = []
-        if st.sidebar.button("📌 Pin current search", key="pin_pincode", use_container_width=True):
-            pin_current(
-                "pincode_pins",
-                {
-                    "query": st.session_state.pincode_query,
-                    "bank": st.session_state.pincode_bank,
-                    "state": st.session_state.pincode_state,
-                    "results": len(results),
-                    "scope": "pincode",
-                },
-            )
+    p1, p2, p3, p4, p5 = st.columns([1, 2, 2, 2, 1])
+    with p1:
+        if st.button("⏮ First", key="pincode_first") and cur2 > 0:
+            st.session_state.pincode_page = 0
             rerun()
-        for i, pin in enumerate(st.session_state.pincode_pins):
-            with st.sidebar.expander(f"{i+1}. {pin['query'] or '(no query)'} | {pin['bank']} | {pin['category']} ({pin['results']})" if 'category' in pin else f"{i+1}. {pin['query'] or '(no query)'} | {pin['bank']} | {pin.get('state','')} ({pin['results']})"):
-                cA, cB = st.columns(2)
-                with cA:
-                    if st.button("Apply", key=f"apply_pincode_pin_{i}"):
-                        st.session_state.pincode_query = pin["query"]
-                        st.session_state.pincode_bank = pin["bank"]
-                        st.session_state.pincode_state = pin.get("state", "All")
-                        st.session_state.pincode_last = (pin["query"], pin["bank"], pin.get("state", "All"))
-                        rerun()
-                with cB:
-                    if st.button("Remove", key=f"remove_pincode_pin_{i}"):
-                        st.session_state.pincode_pins.pop(i)
-                        rerun()
+    with p2:
+        if st.button("⬅ Prev", key="pincode_prev") and cur2 > 0:
+            st.session_state.pincode_page = cur2 - 1
+            rerun()
+    with p3:
+        st.markdown(f"**Page {cur2+1} / {pages2}**")
+    with p4:
+        if st.button("Next ➡", key="pincode_next") and cur2 < pages2 - 1:
+            st.session_state.pincode_page = cur2 + 1
+            rerun()
+    with p5:
+        if st.button("Last ⏭", key="pincode_last") and cur2 < pages2 - 1:
+            st.session_state.pincode_page = pages2 - 1
+            rerun()
 
-    # -------------------------------------------------
-    # Dashboard
-    # -------------------------------------------------
-    elif menu == "📊 Dashboard":
-        st.title("📊 Combined Dashboard")
-        company_data = load_company_data()
-        pincode_data = load_pincode_data()
+    st.dataframe(page_df2, use_container_width=True)
+    download_buttons(results2, "pincode_results.csv", "pincode_results.xlsx")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("🏦 Companies by Bank")
-            bank_counts = company_data["BANK_NAME"].value_counts()
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("📌 Pincode Pins & History")
+        if st.button("📌 Pin current", key="pin_pincode"):
+            add_pin("pincode_pins", HistEntry(query=st.session_state.pincode_query, bank=st.session_state.pincode_bank, cat_state=st.session_state.pincode_state, results=len(results2), scope="pincode"))
+            rerun()
+        if st.button("🧹 Clear Pincode History", key="clear_pincode_hist"):
+            st.session_state.pincode_history = []
+            rerun()
+
+        st.markdown("**Pins**")
+        if st.session_state.pincode_pins:
+            for i, p in enumerate(st.session_state.pincode_pins):
+                with st.expander(f"{i+1}. {p['Query']} | {p['Bank']} | {p['Category/State']} ({p['Results']})"):
+                    ca, cb = st.columns(2)
+                    with ca:
+                        if st.button("Apply", key=f"apply_pincode_pin_{i}"):
+                            st.session_state.pincode_query = p["Query"] if p["Query"] != "(none)" else ""
+                            st.session_state.pincode_bank = p["Bank"]
+                            st.session_state.pincode_state = p["Category/State"]
+                            st.session_state.pincode_page = 0
+                            rerun()
+                    with cb:
+                        if st.button("Remove", key=f"remove_pincode_pin_{i}"):
+                            st.session_state.pincode_pins.pop(i)
+                            rerun()
+        else:
+            st.write("No pins yet")
+
+        st.markdown("**History (recent)**")
+        if st.session_state.pincode_history:
+            st.dataframe(pd.DataFrame(st.session_state.pincode_history).head(10), use_container_width=True, height=200)
+        else:
+            st.write("No history yet")
+
+# -----------------------------
+# DASHBOARD
+# -----------------------------
+elif menu == "📊 Dashboard":
+    st.title("📊 Dashboard")
+    if COMPANY_DF.empty or PINCODE_DF.empty:
+        st.info("Load the datasets (Excel) to see visualizations.")
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("Companies by Bank (top 20)")
+            bc = COMPANY_DF["BANK_NAME"].value_counts().sort_values(ascending=False).head(20)
             fig, ax = plt.subplots()
-            bank_counts.plot(kind="bar", ax=ax)
-            ax.set_ylabel("Number of Companies")
-            ax.set_title("Companies per Bank")
+            bc.plot(kind="bar", ax=ax)
+            ax.set_ylabel("Count")
             st.pyplot(fig)
-
-        with col2:
-            st.subheader("📂 Companies by Category")
-            category_counts = company_data["COMPANY_CATEGORY"].value_counts()
+        with c2:
+            st.subheader("Companies by Category")
+            cc = COMPANY_DF["COMPANY_CATEGORY"].value_counts()
             fig, ax = plt.subplots()
-            category_counts.plot(kind="pie", autopct="%1.1f%%", ax=ax)
+            cc.plot(kind="pie", autopct="%1.1f%%", ax=ax)
             ax.set_ylabel("")
-            ax.set_title("Company Category Share")
             st.pyplot(fig)
+        st.markdown("---")
+        st.subheader("Pincode sample")
+        st.dataframe(PINCODE_DF.head(25), use_container_width=True)
 
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.subheader("📮 Pincode Data Snapshot")
-        st.dataframe(pincode_data.head(20), use_container_width=True)
-
-    # -------------------------------------------------
-    # About
-    # -------------------------------------------------
-    elif menu == "ℹ About App":
-        st.title("ℹ About this App")
-        st.markdown(
-            """
-        This app is a *private listing search tool*. 🔑  
-        **Now with:**
-        - ⚡ Live search (no Search button)
-        - 📜 History (up to 50 per module)
-        - 📌 Pinned searches (up to 50 per module)
-        - 📄 Pagination (10/20/50/100 rows per page)
-        - ⬇ Download filtered results as CSV/Excel
-        - 🗺 Dashboard charts
-        - 🎨 Dark neon UI styling  
-        💡 Built with *Streamlit + Pandas + Matplotlib*
+# -----------------------------
+# ABOUT
+# -----------------------------
+else:
+    st.title("ℹ About")
+    st.markdown(
         """
-        )
-        st.markdown("<h4 style='text-align: center; color: #FFD700;'>✨ Developed by Nihil ✨</h4>", unsafe_allow_html=True)
+        Private Listing App — live search + in-table filters + pagination + history + pins.
+        - Use Streamlit Secrets for password on Streamlit Cloud.
+        - Make sure `company_listings_part1.xlsx`, `company_listings_part2.xlsx`, and `pincode_listings.xlsx` are present.
+        """
+    )
+    st.markdown("Made for mobile & desktop (responsive Streamlit layout).")
+
