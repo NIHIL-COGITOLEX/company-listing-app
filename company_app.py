@@ -58,7 +58,7 @@ PASSWORD = st.secrets.get("password", DEFAULT_PASSWORD)
 
 
 def require_password() -> None:
-    """Simple password gate. Stores flag in session_state."""
+    """Simple password gate. Stores flag in session_state and reruns instantly when unlocked."""
     if "password_ok" not in st.session_state:
         st.session_state["password_ok"] = False
 
@@ -71,10 +71,12 @@ def require_password() -> None:
                 if p == PASSWORD:
                     st.session_state["password_ok"] = True
                     st.success("✅ Access granted")
+                    st.experimental_rerun()  # <-- rerun immediately so form disappears
                 else:
                     st.error("❌ Incorrect password")
         if not st.session_state["password_ok"]:
             st.stop()
+
 
 
 require_password()
@@ -703,3 +705,4 @@ else:
         """
     )
     st.markdown("Made for mobile & desktop (responsive Streamlit layout).")
+
