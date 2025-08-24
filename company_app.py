@@ -226,22 +226,59 @@ def paginate(df: pd.DataFrame, page_key: str, size_key: str) -> Tuple[pd.DataFra
     end = start + page_size
     return df.iloc[start:end], total, cur, pages
 
-def download_buttons(df: pd.DataFrame, csv_name: str, xlsx_name: str):
+import io
+import streamlit as st
+import pandas as pd
+
+def download_buttons(df: pd.DataFrame, csv_filename="data.csv", excel_filename="data.xlsx"):
+    """
+    Safe CSV + Excel download.
+    - CSV always works (no size limit).
+    - Excel capped at Excel's max rows/cols.
+    - If data exceeds, truncate safely and warn the user.
+    """
+
     if df is None or df.empty:
+        st.warning("⚠️ No data available to download.")
         return
+
+    # --- CSV download ---
     csv_bytes = df.to_csv(index=False).encode("utf-8")
-    xio = io.BytesIO()
-    df.to_excel(xio, index=False, engine="openpyxl")
-    xio.seek(0)
     c1, c2 = st.columns(2)
     with c1:
-        st.download_button("⬇ Download CSV", data=csv_bytes, file_name=csv_name, mime="text/csv")
+        st.download_button(
+            "⬇️ Download CSV",
+            data=csv_bytes,
+            file_name=csv_filename,
+            mime="text/csv"
+        )
+
+    # --- Excel download (with hard limits) ---
+    max_rows, max_cols = 1_048_576, 16_384
+    truncated = False
+
+    if df.shape[0] > max_rows or df.shape[1] > max_cols:
+        safe_df = df.iloc[:max_rows, :max_cols].copy()
+        truncated = True
+    else:
+        safe_df = df
+
+    xio = io.BytesIO()
+    safe_df.to_excel(xio, index=False, engine="openpyxl")
+    xio.seek(0)
+
     with c2:
         st.download_button(
-            "⬇ Download Excel",
+            "⬇️ Download Excel",
             data=xio,
-            file_name=xlsx_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_name=excel_filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    if truncated:
+        st.info(
+            f"⚠️ Excel export limited to {max_rows:,} rows × {max_cols:,} cols. "
+            "Use CSV for full data."
         )
 
 # =============================================================================
@@ -761,3 +798,4 @@ else:
         """
     )
     st.markdown("Responsive layout for desktop & mobile.")
+
