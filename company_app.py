@@ -47,18 +47,15 @@ st.set_page_config(
     layout="wide"
 )
 
-st.markdown("""
-<style>
-/* Apply gradient text inside Streamlit input boxes */
-input[type="text"], textarea {
-    background: linear-gradient(90deg, red, yellow);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-weight: bold !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
+st.markdown(
+    """
+    <style>
+    .stApp { background-color: #0d001a; color:#87CEFA; }
+    h1, h2, h3, h4 {
+        color: #FFD700;
+        font-family: 'Trebuchet MS', sans-serif;
+        font-weight: 700;
+        text-shadow: 0 0 6px #FF0000;
     }
     .search-input .stTextInput>div>div>input {
         background: rgba(255,255,255,0.04) !important;
@@ -946,5 +943,4 @@ else:
         <small style="color:#87CEFA;">&copy; 2025 Developed by NIHIL (Cogito Lex) — All rights reserved.</small>
     </div>
     """, unsafe_allow_html=True)
-
 
