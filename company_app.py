@@ -382,30 +382,42 @@ with st.sidebar:
 # =============================================================================
 # In-table filter UI (above table)
 # =============================================================================
-def table_filters(df, key_prefix="flt", exclude_cols: Tuple[str, ...] = ()):
-    """Render table-level filters safely (handles empty / single-value cases)."""
-    import math
-    import pandas as pd
-    import streamlit as st
+from typing import Iterable
+import math
+import pandas as pd
+import streamlit as st
+
+def table_filters(
+    df: pd.DataFrame,
+    key_prefix: str = "flt",
+    exclude_cols: Iterable[str] = ()
+) -> pd.DataFrame:
+    """Render table-level filters safely (handles empty/single-value cases)."""
 
     if df is None or df.empty:
         st.info("No results found for this search.")
         return df
 
-    col_ui = st.container()
+    # Skip excluded columns (case-insensitive)
+    exclude = {str(c).upper() for c in exclude_cols}
+    cols = [c for c in df.columns if str(c).upper() not in exclude]
 
-    for cname in df.columns:
-        if cname in exclude_cols:
-            continue  # ✅ Skip excluded columns
+    st.markdown("<div class='table-filter-row'>", unsafe_allow_html=True)
+    container = st.container()
 
-        if pd.api.types.is_numeric_dtype(df[cname]):
-            s = pd.to_numeric(df[cname], errors="coerce")
-            mini = float(s.min())
-            maxi = float(s.max())
+    for cname in cols:
+        series = df[cname]
 
+        if pd.api.types.is_numeric_dtype(series):
+            s = pd.to_numeric(series, errors="coerce")
+            # handle empty/NaN-only columns safely
+            mini = float(s.min(skipna=True)) if s.size else float("nan")
+            maxi = float(s.max(skipna=True)) if s.size else float("nan")
+
+            # normal numeric range
             if math.isfinite(mini) and math.isfinite(maxi) and mini < maxi:
                 step = max((maxi - mini) / 100, 1e-9)
-                rng = col_ui.slider(
+                rng = container.slider(
                     cname,
                     min_value=mini,
                     max_value=maxi,
@@ -413,20 +425,25 @@ def table_filters(df, key_prefix="flt", exclude_cols: Tuple[str, ...] = ()):
                     step=step,
                     key=f"{key_prefix}_rng_{cname}",
                 )
-                df = df[(s >= rng[0]) & (s <= rng[1])]
+                s2 = pd.to_numeric(df[cname], errors="coerce")
+                df = df[(s2 >= rng[0]) & (s2 <= rng[1])]
 
-            elif mini == maxi and math.isfinite(mini):
-                col_ui.write(f"{cname}: single value ({mini})")
+            # single unique numeric value
+            elif math.isfinite(mini) and math.isfinite(maxi) and mini == maxi:
+                container.write(f"{cname}: single value ({mini})")
+
             else:
-                col_ui.write(f"{cname} (no numeric range)")
+                container.write(f"{cname} (no numeric range)")
 
         else:
-            txt_val = col_ui.text_input(
+            # simple contains filter for text-like columns
+            txt = container.text_input(
                 f"Filter {cname}", key=f"{key_prefix}_txt_{cname}"
             )
-            if txt_val:
-                df = df[df[cname].astype(str).str.contains(txt_val, case=False, na=False)]
+            if txt:
+                df = df[df[cname].astype(str).str.contains(txt, case=False, na=False)]
 
+    st.markdown("</div>", unsafe_allow_html=True)
     return df
 
 # =============================================================================
@@ -801,6 +818,7 @@ else:
         """
     )
     st.markdown("Responsive layout for desktop & mobile.")
+
 
 
 
