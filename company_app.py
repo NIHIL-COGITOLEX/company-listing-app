@@ -382,13 +382,12 @@ with st.sidebar:
 # =============================================================================
 # In-table filter UI (above table)
 # =============================================================================
-def table_filters(df, key_prefix="flt"):
+def table_filters(df, key_prefix="flt", exclude_cols: Tuple[str, ...] = ()):
     """Render table-level filters safely (handles empty / single-value cases)."""
     import math
     import pandas as pd
     import streamlit as st
 
-    # If no data, return immediately
     if df is None or df.empty:
         st.info("No results found for this search.")
         return df
@@ -396,12 +395,14 @@ def table_filters(df, key_prefix="flt"):
     col_ui = st.container()
 
     for cname in df.columns:
+        if cname in exclude_cols:
+            continue  # ✅ Skip excluded columns
+
         if pd.api.types.is_numeric_dtype(df[cname]):
             s = pd.to_numeric(df[cname], errors="coerce")
             mini = float(s.min())
             maxi = float(s.max())
 
-            # ✅ Handle normal numeric range
             if math.isfinite(mini) and math.isfinite(maxi) and mini < maxi:
                 step = max((maxi - mini) / 100, 1e-9)
                 rng = col_ui.slider(
@@ -414,15 +415,12 @@ def table_filters(df, key_prefix="flt"):
                 )
                 df = df[(s >= rng[0]) & (s <= rng[1])]
 
-            # ✅ Handle single unique value
             elif mini == maxi and math.isfinite(mini):
                 col_ui.write(f"{cname}: single value ({mini})")
-
             else:
                 col_ui.write(f"{cname} (no numeric range)")
 
         else:
-            # For text columns, add a text filter
             txt_val = col_ui.text_input(
                 f"Filter {cname}", key=f"{key_prefix}_txt_{cname}"
             )
@@ -803,5 +801,6 @@ else:
         """
     )
     st.markdown("Responsive layout for desktop & mobile.")
+
 
 
