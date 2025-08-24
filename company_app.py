@@ -57,13 +57,13 @@ st.markdown(
         font-weight: 700;
         text-shadow: 0 0 6px #FF0000;
     }
-    .search-input .stTextInput>div>div>input {
-        background: rgba(255,255,255,0.04) !important;
-        border: 1px solid #FFD700 !important;
-        color: #87CEFA !important;
-        border-radius: 10px !important;
-        padding: 10px !important;
-    }
+     .search-input .stTextInput>div>div>input {
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid #FFD700 !important;
+    color: #FFD700 !important;      /* text color changed to gold */
+    border-radius: 10px !important;
+    padding: 10px !important;
+}
     .stButton>button {
         background: linear-gradient(45deg,#ff0040,#ff8000) !important;
         color: white !important;
@@ -943,5 +943,6 @@ else:
         <small style="color:#87CEFA;">&copy; 2025 Developed by NIHIL — All rights reserved.</small>
     </div>
     """, unsafe_allow_html=True)
+
 
 
