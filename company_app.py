@@ -884,26 +884,58 @@ elif menu == "📊 Dashboard":
 # ABOUT
 # =============================================================================
 else:
-    st.title("ℹ About")
-    st.markdown(
-        """
-        **Private Listing App** — search with buttons, non-duplicated filters, dark-green match highlight,
-        pagination, history and pins, plus a compact dashboard.
+    st.title("ℹ About Private Listing App")
+    
+    st.markdown("""
+    <div style="background:linear-gradient(90deg,#0d001a,#0f0f3a); 
+                padding:20px; border-radius:15px; color:#FFD700;">
+        <h2>Welcome to the Private Listing App!</h2>
+        <p>
+        This app is designed for DSAs and financial professionals to quickly check 
+        <strong>company listings</strong> and <strong>pincode coverage</strong> for multiple banks.
+        It combines speed, security, and convenience in one intuitive interface.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        **Notes**
-        - Set `password` in **Secrets** on Streamlit Cloud to secure the app.
-        - Local fallback password is defined in the code (`DEFAULT_PASSWORD`).
-        - Ensure these files exist or upload via sidebar:
-          - `company_listings_part1.xlsx`
-          - `company_listings_part2.xlsx`
-          - `pincode_listings.xlsx`
+    st.markdown("### 🔑 Key Features")
+    st.markdown("""
+    - **Secure Access:** Password-protected with fallback for local usage.  
+    - **Company Listing Search:** Filter by bank, category, or search text.  
+    - **Pincode Checker:** Verify which banks operate in specific locations.  
+    - **Smart Filters:** Table-level filters with numeric ranges and text search.  
+    - **Highlight Matches:** Matches in search results are highlighted for clarity.  
+    - **History & Pins:** Save recent searches and frequently used queries for quick access.  
+    - **Pagination & Download:** Navigate large datasets and export results to CSV/Excel.  
+    - **Dashboard:** Visual insights into company categories and bank distribution.
+    """)
 
-        **If you see inotify warnings on Streamlit Cloud**
-        Add a `.streamlit/config.toml` with:
-        ```
-        [server]
-        fileWatcherType = "none"
-        ```
-        """
-    )
-    st.markdown("Responsive layout for desktop & mobile.")
+    st.markdown("### 💡 Usage Tips")
+    st.markdown("""
+    1. Use the **Search** bar to quickly locate companies or pincodes.  
+    2. Apply **Bank or Category filters** for precise results.  
+    3. Save your frequently accessed queries with **Pins**.  
+    4. Export results safely via the **Download** buttons.  
+    5. Keep your password secure; it protects sensitive data.
+    """)
+
+    st.markdown("### 🖥️ Technical Notes")
+    st.markdown("""
+    - Built with **Streamlit**, **Pandas**, and **Matplotlib** for a fast and responsive experience.  
+    - Works seamlessly on desktop and mobile browsers.  
+    - Optional dataset uploads allow you to continue working even if local files are missing.  
+    - Dark-themed UI with green highlights for matched search terms.  
+    - Set `password` in Streamlit Secrets for production security.
+    """)
+
+    st.markdown("### ⚡ Developed by NIHIL")
+    st.markdown("""
+    This app reflects a clean, efficient, and professional workflow for loan DSAs.  
+    Streamlined design ensures minimal clicks and maximum productivity.
+    """)
+    
+    st.markdown("""
+    <div style="text-align:center; margin-top:20px;">
+        <small style="color:#87CEFA;">&copy; 2025 Developed by NIHIL — All rights reserved.</small>
+    </div>
+    """, unsafe_allow_html=True)
