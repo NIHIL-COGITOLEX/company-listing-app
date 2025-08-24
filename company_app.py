@@ -382,48 +382,53 @@ with st.sidebar:
 # =============================================================================
 # In-table filter UI (above table)
 # =============================================================================
-def table_filters(df: pd.DataFrame, key_prefix: str, exclude_cols: Iterable[str] = ()) -> pd.DataFrame:
+def table_filters(df, key_prefix="flt"):
+    """Render table-level filters safely (handles empty / single-value cases)."""
+    import math
+    import pandas as pd
+    import streamlit as st
+
+    # If no data, return immediately
     if df is None or df.empty:
+        st.info("No results found for this search.")
         return df
 
-    exclude = {c.upper() for c in exclude_cols}
-    cols = [c for c in df.columns if c.upper() not in exclude]
+    col_ui = st.container()
 
-    obj_cols = [c for c in cols if df[c].dtype == object or pd.api.types.is_categorical_dtype(df[c])]
-    num_cols = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
-    picked = (obj_cols[:4] + num_cols[:2])[:6]
+    for cname in df.columns:
+        if pd.api.types.is_numeric_dtype(df[cname]):
+            s = pd.to_numeric(df[cname], errors="coerce")
+            mini = float(s.min())
+            maxi = float(s.max())
 
-    st.markdown("<div class='table-filter-row'>", unsafe_allow_html=True)
-    if picked:
-        per_row = 3
-        rows = math.ceil(len(picked) / per_row)
-        idx = 0
-        for _ in range(rows):
-            cols_ui = st.columns(per_row)
-            for col_ui in cols_ui:
-                if idx >= len(picked):
-                    break
-                cname = picked[idx]
-                idx += 1
-                if cname in obj_cols:
-                    options = ["All"] + sorted([str(x) for x in df[cname].dropna().unique()])
-                    sel = col_ui.selectbox(cname, options, index=0, key=f"{key_prefix}_sel_{cname}")
-                    if sel != "All":
-                        df = df[df[cname].astype(str) == sel]
-                else:
-                    s = pd.to_numeric(df[cname], errors="coerce")
-                    mini = float(s.min())
-                    maxi = float(s.max())
-                    if math.isfinite(mini) and math.isfinite(maxi):
-                        step = (maxi - mini) / 100 if maxi > mini else 1.0
-                        rng = col_ui.slider(
-                            cname, min_value=mini, max_value=maxi, value=(mini, maxi), step=step,
-                            key=f"{key_prefix}_rng_{cname}",
-                        )
-                        df = df[(s >= rng[0]) & (s <= rng[1])]
-                    else:
-                        col_ui.write(f"{cname} (no numeric range)")
-    st.markdown("</div>", unsafe_allow_html=True)
+            # ✅ Handle normal numeric range
+            if math.isfinite(mini) and math.isfinite(maxi) and mini < maxi:
+                step = max((maxi - mini) / 100, 1e-9)
+                rng = col_ui.slider(
+                    cname,
+                    min_value=mini,
+                    max_value=maxi,
+                    value=(mini, maxi),
+                    step=step,
+                    key=f"{key_prefix}_rng_{cname}",
+                )
+                df = df[(s >= rng[0]) & (s <= rng[1])]
+
+            # ✅ Handle single unique value
+            elif mini == maxi and math.isfinite(mini):
+                col_ui.write(f"{cname}: single value ({mini})")
+
+            else:
+                col_ui.write(f"{cname} (no numeric range)")
+
+        else:
+            # For text columns, add a text filter
+            txt_val = col_ui.text_input(
+                f"Filter {cname}", key=f"{key_prefix}_txt_{cname}"
+            )
+            if txt_val:
+                df = df[df[cname].astype(str).str.contains(txt_val, case=False, na=False)]
+
     return df
 
 # =============================================================================
@@ -798,4 +803,5 @@ else:
         """
     )
     st.markdown("Responsive layout for desktop & mobile.")
+
 
