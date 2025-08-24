@@ -41,7 +41,11 @@ import streamlit as st
 # =============================================================================
 # App config and global CSS
 # =============================================================================
-st.set_page_config(page_title="Private Listing App", page_icon="☁", layout="wide")
+st.set_page_config(
+    page_title="Cogito Lex",
+    page_icon="🧠📜",
+    layout="wide"
+)
 
 st.markdown(
     """
@@ -464,6 +468,17 @@ def on_pincode_size_change():
 # Sidebar: navigation + quick stats + history preview
 # =============================================================================
 with st.sidebar:
+    st.markdown(
+        """
+        <div style="text-align:center; margin-bottom:20px;">
+            <img src='data:image/png;base64,{}' width="120" style="border-radius:20px;">
+            <h2 style="color:#FFD700; font-family:'Trebuchet MS', sans-serif;">Cogito Lex</h2>
+        </div>
+        """.format(cl_logo_base64),
+        unsafe_allow_html=True
+    )
+
+    st.markdown("---")
     st.title("📂 Navigation")
     menu = st.radio(
         "Choose Feature",
@@ -939,3 +954,4 @@ else:
         <small style="color:#87CEFA;">&copy; 2025 Developed by NIHIL — All rights reserved.</small>
     </div>
     """, unsafe_allow_html=True)
+
