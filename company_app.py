@@ -1,28 +1,31 @@
 # company_app_final.py
 """
-Private Listing App - Solid & Clean (Fixed)
--------------------------------------------
+Private Listing App - Solid & Clean (3-part company listings)
+-------------------------------------------------------------
 - Password gate with st.secrets["password"] fallback
-- Robust header normalization for both datasets
+- Robust header normalization for all datasets
 - Search forms with controlled state (no stale text bug)
 - Quick filters + non-duplicated table-level filters
 - Vectorized substring search with highlighting + "MATCHED_IN"
 - Pagination with selectable page size
 - History (last 50) + Pins (save/apply/remove)
-- CSV / Excel download
-- Optional file uploads when repo files are missing (good for Streamlit Cloud)
+- CSV / Excel download with safe truncation for Excel limits
+- Optional file uploads when repo files are missing (great for Streamlit Cloud)
 - Dashboard & About tabs
 
-Fixes in this version:
-- Reset buttons use safe callbacks (no direct widget state mutation mid-run)
-- table_filters() has stable signature with exclude_cols
-- Cleaned duplicate imports & safer pagination resets
+New in this version:
+- Support for a third company listings part: company_listings_part3.xlsx
+- Upload fallback includes Part 3
+- Safer handling of optional datasets and renaming columns
+- Minor UI polish and small guard rails
 
 Requirements:
   streamlit, pandas, matplotlib, openpyxl
+
 Files expected in working dir (unless uploaded in-app):
   - company_listings_part1.xlsx
   - company_listings_part2.xlsx
+  - company_listings_part3.xlsx   <-- NEW
   - pincode_listings.xlsx
 """
 
@@ -32,7 +35,7 @@ import io
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -93,7 +96,6 @@ DEFAULT_PASSWORD = "NIHIL IS GREAT"
 
 def get_password() -> str:
     try:
-        # st.secrets behaves like a mapping; KeyError if missing
         return st.secrets["password"]
     except Exception:
         return DEFAULT_PASSWORD
@@ -291,6 +293,13 @@ def download_buttons(df: pd.DataFrame, csv_filename="data.csv", excel_filename="
 # =============================================================================
 # Data loading (cached) + upload fallback
 # =============================================================================
+COMPANY_FILES = (
+    "company_listings_part1.xlsx",
+    "company_listings_part2.xlsx",
+    "company_listings_part3.xlsx",  # NEW
+)
+PINCODE_FILE = "pincode_listings.xlsx"
+
 @st.cache_data(show_spinner=False)
 def _read_excel_safe(path: str) -> pd.DataFrame:
     try:
@@ -298,43 +307,60 @@ def _read_excel_safe(path: str) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 
-@st.cache_data(show_spinner=False)
-def load_company_data(files: Tuple[bytes|None, bytes|None] = (None, None)) -> pd.DataFrame:
-    if files[0] is not None and files[1] is not None:
-        df1 = pd.read_excel(files[0])
-        df2 = pd.read_excel(files[1])
-    else:
-        df1 = _read_excel_safe("company_listings_part1.xlsx")
-        df2 = _read_excel_safe("company_listings_part2.xlsx")
-    if df1.empty and df2.empty:
+def _concat_non_empty(dfs: List[pd.DataFrame]) -> pd.DataFrame:
+    non_empty = [d for d in dfs if isinstance(d, pd.DataFrame) and not d.empty]
+    if not non_empty:
         return pd.DataFrame()
-    df = pd.concat([df1, df2], ignore_index=True)
+    return pd.concat(non_empty, ignore_index=True)
+
+@st.cache_data(show_spinner=False)
+def load_company_data(files: Tuple[Optional[bytes], Optional[bytes], Optional[bytes]] = (None, None, None)) -> pd.DataFrame:
+    # If all uploads provided, use them; else fall back to disk for any missing parts
+    # Accept either uploaded BytesIO/bytes or None
+    parts: List[pd.DataFrame] = []
+    for i, upload in enumerate(files):
+        if upload is not None:
+            try:
+                parts.append(pd.read_excel(upload))
+            except Exception:
+                parts.append(pd.DataFrame())
+        else:
+            parts.append(_read_excel_safe(COMPANY_FILES[i]))
+    df = _concat_non_empty(parts)
     return normalize_headers(df)
 
 @st.cache_data(show_spinner=False)
-def load_pincode_data(file: bytes|None = None) -> pd.DataFrame:
+def load_pincode_data(file: Optional[bytes] = None) -> pd.DataFrame:
     if file is not None:
-        df = pd.read_excel(file)
+        try:
+            df = pd.read_excel(file)
+        except Exception:
+            df = pd.DataFrame()
     else:
-        df = _read_excel_safe("pincode_listings.xlsx")
+        df = _read_excel_safe(PINCODE_FILE)
     return normalize_headers(df)
 
 # Upload fallback UI (only if files missing)
+need_company_upload = any(_read_excel_safe(p).empty for p in COMPANY_FILES)
+need_pincode_upload = _read_excel_safe(PINCODE_FILE).empty
+
 comp1_file = None
 comp2_file = None
+comp3_file = None
 pin_file = None
 
-if (_read_excel_safe("company_listings_part1.xlsx").empty or
-    _read_excel_safe("company_listings_part2.xlsx").empty or
-    _read_excel_safe("pincode_listings.xlsx").empty):
+if need_company_upload or need_pincode_upload:
     with st.sidebar:
         st.markdown("---")
         st.subheader("📥 Optional: Upload datasets")
-        comp1_file = st.file_uploader("company_listings_part1.xlsx", type=["xlsx"])
-        comp2_file = st.file_uploader("company_listings_part2.xlsx", type=["xlsx"])
-        pin_file = st.file_uploader("pincode_listings.xlsx", type=["xlsx"])
+        if need_company_upload:
+            comp1_file = st.file_uploader("company_listings_part1.xlsx", type=["xlsx"], key="up1")
+            comp2_file = st.file_uploader("company_listings_part2.xlsx", type=["xlsx"], key="up2")
+            comp3_file = st.file_uploader("company_listings_part3.xlsx", type=["xlsx"], key="up3")  # NEW
+        if need_pincode_upload:
+            pin_file = st.file_uploader("pincode_listings.xlsx", type=["xlsx"], key="uppin")
 
-COMPANY_DF = load_company_data((comp1_file, comp2_file))
+COMPANY_DF = load_company_data((comp1_file, comp2_file, comp3_file))
 PINCODE_DF = load_pincode_data(pin_file)
 
 # =============================================================================
@@ -384,10 +410,14 @@ def table_filters(
         if pd.api.types.is_numeric_dtype(series):
             s = pd.to_numeric(series, errors="coerce")
             # handle empty/NaN-only columns safely
-            mini = float(s.min(skipna=True)) if s.size else float("nan")
-            maxi = float(s.max(skipna=True)) if s.size else float("nan")
+            has_values = s.notna().any()
+            if not has_values:
+                container.write(f"{cname} (no numeric range)")
+                continue
 
-            # normal numeric range
+            mini = float(s.min(skipna=True))
+            maxi = float(s.max(skipna=True))
+
             if math.isfinite(mini) and math.isfinite(maxi) and mini < maxi:
                 step = max((maxi - mini) / 100, 1e-9)
                 rng = container.slider(
@@ -400,14 +430,10 @@ def table_filters(
                 )
                 s2 = pd.to_numeric(df[cname], errors="coerce")
                 df = df[(s2 >= rng[0]) & (s2 <= rng[1])]
-
-            # single unique numeric value
             elif math.isfinite(mini) and math.isfinite(maxi) and mini == maxi:
                 container.write(f"{cname}: single value ({mini})")
-
             else:
                 container.write(f"{cname} (no numeric range)")
-
         else:
             # simple contains filter for text-like columns
             txt = container.text_input(
@@ -690,8 +716,8 @@ elif menu == "📮 Pincode Listing Checker":
         with c2:
             st.form_submit_button("♻ Reset", on_click=on_pincode_reset)
 
-    # Unify bank column if needed
-    if "BANK" in PINCODE_DF.columns and "BANK_NAME" not in PINCODE_DF.columns:
+    # Unify bank column if needed (without mutating cached PINCODE_DF in-place)
+    if not PINCODE_DF.empty and "BANK" in PINCODE_DF.columns and "BANK_NAME" not in PINCODE_DF.columns:
         PINCODE_DF = PINCODE_DF.rename(columns={"BANK": "BANK_NAME"})
 
     banks = (
@@ -856,46 +882,52 @@ elif menu == "📮 Pincode Listing Checker":
 # =============================================================================
 elif menu == "📊 Dashboard":
     st.title("📊 Dashboard")
-    if COMPANY_DF.empty or PINCODE_DF.empty:
+    if COMPANY_DF.empty and PINCODE_DF.empty:
         st.info("Load the datasets (Excel) to see visualizations.")
     else:
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("Companies by Bank (top 20)")
-            if "BANK_NAME" in COMPANY_DF.columns:
+            if not COMPANY_DF.empty and "BANK_NAME" in COMPANY_DF.columns:
                 bc = COMPANY_DF["BANK_NAME"].value_counts().sort_values(ascending=False).head(20)
                 fig, ax = plt.subplots()
                 bc.plot(kind="bar", ax=ax)
                 ax.set_ylabel("Count")
+                ax.set_xlabel("Bank")
+                ax.set_title("Top Banks by Company Count")
                 st.pyplot(fig)
             else:
                 st.info("BANK_NAME column missing in company dataset.")
         with c2:
             st.subheader("Companies by Category")
-            if "COMPANY_CATEGORY" in COMPANY_DF.columns:
+            if not COMPANY_DF.empty and "COMPANY_CATEGORY" in COMPANY_DF.columns:
                 cc = COMPANY_DF["COMPANY_CATEGORY"].value_counts()
                 fig, ax = plt.subplots()
                 cc.plot(kind="pie", autopct="%1.1f%%", ax=ax)
                 ax.set_ylabel("")
+                ax.set_title("Company Category Share")
                 st.pyplot(fig)
             else:
                 st.info("COMPANY_CATEGORY column missing in company dataset.")
         st.markdown("---")
         st.subheader("Pincode sample")
-        st.dataframe(PINCODE_DF.head(25), use_container_width=True)
+        if not PINCODE_DF.empty:
+            st.dataframe(PINCODE_DF.head(25), use_container_width=True)
+        else:
+            st.info("No pincode data loaded.")
 
 # =============================================================================
 # ABOUT
 # =============================================================================
 else:
     st.title("ℹ About Private Listing App")
-    
+
     st.markdown("""
-    <div style="background:linear-gradient(90deg,#0d001a,#0f0f3a); 
+    <div style="background:linear-gradient(90deg,#0d001a,#0f0f3a);
                 padding:20px; border-radius:15px; color:#FFD700;">
         <h2>Welcome to the Private Listing App!</h2>
         <p>
-        This app is designed for DSAs and financial professionals to quickly check 
+        This app is designed for DSAs and financial professionals to quickly check
         <strong>company listings</strong> and <strong>pincode coverage</strong> for multiple banks.
         It combines speed, security, and convenience in one intuitive interface.
         </p>
@@ -911,7 +943,8 @@ else:
     - **Highlight Matches:** Matches in search results are highlighted for clarity.  
     - **History & Pins:** Save recent searches and frequently used queries for quick access.  
     - **Pagination & Download:** Navigate large datasets and export results to CSV/Excel.  
-    - **Dashboard:** Visual insights into company categories and bank distribution.
+    - **Dashboard:** Visual insights into company categories and bank distribution.  
+    - **Three-Part Companies:** Seamless support for Part 1, Part 2, and Part 3 Excel files.
     """)
 
     st.markdown("### 💡 Usage Tips")
@@ -920,7 +953,8 @@ else:
     2. Apply **Bank or Category filters** for precise results.  
     3. Save your frequently accessed queries with **Pins**.  
     4. Export results safely via the **Download** buttons.  
-    5. Keep your password secure; it protects sensitive data.
+    5. Keep your password secure; it protects sensitive data.  
+    6. If running on Streamlit Cloud, upload Excel files in the sidebar if they are not present.
     """)
 
     st.markdown("### 🖥️ Technical Notes")
@@ -937,10 +971,9 @@ else:
     This app reflects a clean, efficient, and professional workflow for loan DSAs.  
     Streamlined design ensures minimal clicks and maximum productivity.
     """)
-    
+
     st.markdown("""
     <div style="text-align:center; margin-top:20px;">
         <small style="color:#87CEFA;">&copy; 2025 Developed by NIHIL (Cogito Lex) — All rights reserved.</small>
     </div>
     """, unsafe_allow_html=True)
-
